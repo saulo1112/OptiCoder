@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { analyzeImageWithGemini } from "../../services/GeminiService";
+import { ImageStore } from "../../services/ImageStore";
 import Header from "../Header";
 import { speakText } from "../TextToSpeechPlayer";
 
@@ -36,7 +37,7 @@ export default function CameraFunction() {
     (async () => {
       const camPerm = await Camera.requestCameraPermissionsAsync();
       const libPerm = await MediaLibrary.requestPermissionsAsync();
-      const micPerm = await Camera.requestMicrophonePermissionsAsync();
+      await Camera.requestMicrophonePermissionsAsync();
       setCameraPermission(camPerm.status === "granted");
       setMediaLibraryPermission(libPerm.status === "granted");
     })();
@@ -60,10 +61,16 @@ export default function CameraFunction() {
       setImageDescription(null);
 
       if (newPhoto.base64) {
-        const description = await analyzeImageWithGemini(newPhoto.base64);
+        ImageStore.setBase64(newPhoto.base64); // ✅ Se guarda desde ya
+
+        const shortPrompt = "Describe brevemente el contenido visible en esta imagen de código o interfaz.";
+        const description = await analyzeImageWithGemini(newPhoto.base64, shortPrompt);
+
         setImageDescription(description);
         speakText(description, voiceLang);
-        Speech.speak("Procesamiento avanzado disponible", { language: voiceLang });
+        Speech.speak("Análisis inicial completo. Puedes activar el asistente para conversar.", {
+          language: voiceLang,
+        });
       } else {
         const fallback = "No se pudo capturar imagen en formato base64.";
         setImageDescription(fallback);
@@ -91,6 +98,16 @@ export default function CameraFunction() {
     Speech.stop();
     setPhoto(undefined);
     setImageDescription(null);
+    ImageStore.clear(); // ✅ Limpiar memoria
+  };
+
+  const handleAdvancedProcessing = () => {
+    if (photo?.base64) {
+      router.push({
+        pathname: "/image-chat-screen",
+        params: { selectedLanguage },
+      });
+    }
   };
 
   if (photo) {
@@ -121,10 +138,7 @@ export default function CameraFunction() {
             <Ionicons name="trash-outline" size={30} color="black" />
           </TouchableOpacity>
           {imageDescription && !isAnalyzing && (
-            <TouchableOpacity
-              style={styles.btn}
-              onPress={() => router.push("/image-chat-screen")}
-            >
+            <TouchableOpacity style={styles.btn} onPress={handleAdvancedProcessing}>
               <Ionicons name="chatbox-ellipses-outline" size={30} color="black" />
             </TouchableOpacity>
           )}
