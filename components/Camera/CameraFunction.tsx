@@ -1,15 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Audio } from "expo-av";
 import { Camera, CameraCapturedPicture, CameraView } from "expo-camera";
 import { CameraType } from "expo-camera/build/Camera.types";
 import * as MediaLibrary from "expo-media-library";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Speech from "expo-speech";
+import LottieView from "lottie-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,8 +17,8 @@ import {
 } from "react-native";
 import { analyzeImageWithGemini } from "../../services/GeminiService";
 import { ImageStore } from "../../services/ImageStore";
+import * as SpeechRecognition from "../../services/transcribeAudioWithWhisper";
 import Header from "../Header";
-import { speakText } from "../TextToSpeechPlayer";
 
 export default function CameraFunction() {
   const { selectedLanguage = "es" } = useLocalSearchParams<{ selectedLanguage: string }>();
@@ -29,17 +29,27 @@ export default function CameraFunction() {
   const [mediaLibraryPermission, setMediaLibraryPermission] = useState<boolean | undefined>();
   const [facing, setFacing] = useState<CameraType>("back");
   const [photo, setPhoto] = useState<CameraCapturedPicture | undefined>(undefined);
-  const [imageDescription, setImageDescription] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [showLottie, setShowLottie] = useState<boolean>(false);
+  const [buttonsVisible, setButtonsVisible] = useState(true);
+  const [cameraKey, setCameraKey] = useState(0);
+
   const cameraRef = useRef<CameraView>(null);
+  const lottieRef = useRef<LottieView>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
 
   useEffect(() => {
     (async () => {
       const camPerm = await Camera.requestCameraPermissionsAsync();
       const libPerm = await MediaLibrary.requestPermissionsAsync();
-      await Camera.requestMicrophonePermissionsAsync();
+      const micPerm = await Audio.requestPermissionsAsync();
+
       setCameraPermission(camPerm.status === "granted");
       setMediaLibraryPermission(libPerm.status === "granted");
+
+      if (camPerm.status === "granted" && libPerm.status === "granted" && micPerm.status === "granted") {
+        setCameraKey(prev => prev + 1);
+      }
     })();
   }, []);
 
@@ -55,34 +65,80 @@ export default function CameraFunction() {
     const options = { quality: 1, base64: true, exif: false };
     const newPhoto = await cameraRef.current.takePictureAsync(options);
     setPhoto(newPhoto);
+    setButtonsVisible(false);
 
     try {
       setIsAnalyzing(true);
-      setImageDescription(null);
+      setShowLottie(false);
 
       if (newPhoto.base64) {
-        ImageStore.setBase64(newPhoto.base64); // ✅ Se guarda desde ya
+        ImageStore.setBase64(newPhoto.base64);
 
         const shortPrompt = "Describe brevemente el contenido visible en esta imagen de código o interfaz.";
-        const description = await analyzeImageWithGemini(newPhoto.base64, shortPrompt);
+        await analyzeImageWithGemini(newPhoto.base64, shortPrompt);
 
-        setImageDescription(description);
-        speakText(description, voiceLang);
-        Speech.speak("Análisis inicial completo. Puedes activar el asistente para conversar.", {
+        setShowLottie(true);
+        Speech.speak("Imagen procesada correctamente. Di 'sí' para continuar al análisis detallado.", {
           language: voiceLang,
+          onDone: () => {
+            setTimeout(() => {
+              handleVoiceConfirmation();
+            }, 500);
+          },
         });
       } else {
-        const fallback = "No se pudo capturar imagen en formato base64.";
-        setImageDescription(fallback);
-        speakText(fallback, voiceLang);
+        Speech.speak("No se pudo capturar imagen en formato base64.", { language: voiceLang });
+        setButtonsVisible(true);
       }
     } catch (error) {
       console.error("Error analizando la imagen:", error);
-      const errorMsg = "Fallo en el análisis. Intenta nuevamente.";
-      setImageDescription(errorMsg);
-      speakText(errorMsg, voiceLang);
+      Speech.speak("Fallo en el análisis. Intenta nuevamente.", { language: voiceLang });
+      setButtonsVisible(true);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const handleVoiceConfirmation = async () => {
+    const voiceInput = await listenForYes();
+    if (voiceInput.toLowerCase().includes("sí") || voiceInput.toLowerCase().includes("yes")) {
+      router.push({
+        pathname: "/image-chat-screen",
+        params: { selectedLanguage },
+      });
+    } else {
+      setButtonsVisible(true);
+    }
+  };
+
+  const listenForYes = async (): Promise<string> => {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+      recordingRef.current = recording;
+
+      console.log("🎤 Grabando...");
+
+      await new Promise(resolve => setTimeout(resolve, 6000));
+
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      console.log("📁 Audio grabado en:", uri);
+
+      if (uri) {
+        const result = await SpeechRecognition.transcribeAudioWithWhisper(uri);
+        return result || "";
+      }
+      return "";
+    } catch (err) {
+      console.error("Error al grabar/transcribir audio:", err);
+      return "";
     }
   };
 
@@ -90,25 +146,18 @@ export default function CameraFunction() {
     if (!photo) return;
     MediaLibrary.saveToLibraryAsync(photo.uri).then(() => {
       setPhoto(undefined);
-      setImageDescription(null);
     });
   };
 
   const discardPhoto = () => {
     Speech.stop();
     setPhoto(undefined);
-    setImageDescription(null);
-    ImageStore.clear(); // ✅ Limpiar memoria
+    setShowLottie(false);
+    setButtonsVisible(false);
+    ImageStore.clear();
   };
 
-  const handleAdvancedProcessing = () => {
-    if (photo?.base64) {
-      router.push({
-        pathname: "/image-chat-screen",
-        params: { selectedLanguage },
-      });
-    }
-  };
+  const showHeader = false;
 
   if (photo) {
     return (
@@ -116,45 +165,50 @@ export default function CameraFunction() {
         <Image style={styles.preview} source={{ uri: photo.uri }} />
         <View style={styles.descriptionContainer}>
           {isAnalyzing ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#0000ff" />
-              <Text style={styles.loadingText}>Analizando imagen...</Text>
+            <Text style={styles.loadingText}>Analizando imagen...</Text>
+          ) : showLottie ? (
+            <View style={styles.lottieContainer}>
+              <LottieView
+                ref={lottieRef}
+                source={require("../../assets/animations/image-processed.json")}
+                autoPlay
+                loop
+                style={{ width: 200, height: 200 }}
+              />
+              <Text style={styles.confirmText}>Imagen procesada correctamente. Esperando confirmación...</Text>
             </View>
-          ) : (
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-              <Text style={styles.descriptionText}>
-                {imageDescription || "Sin descripción disponible."}
-              </Text>
-            </ScrollView>
-          )}
+          ) : null}
         </View>
-        <View style={styles.btnContainer}>
-          {mediaLibraryPermission && (
-            <TouchableOpacity style={styles.btn} onPress={savePhoto}>
-              <Ionicons name="save-outline" size={30} color="black" />
+
+        {buttonsVisible && (
+          <View style={styles.btnContainer}>
+            {mediaLibraryPermission && (
+              <TouchableOpacity style={styles.btn} onPress={savePhoto}>
+                <Ionicons name="save-outline" size={30} color="black" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.btn} onPress={discardPhoto}>
+              <Ionicons name="trash-outline" size={30} color="black" />
             </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.btn} onPress={discardPhoto}>
-            <Ionicons name="trash-outline" size={30} color="black" />
-          </TouchableOpacity>
-          {imageDescription && !isAnalyzing && (
-            <TouchableOpacity style={styles.btn} onPress={handleAdvancedProcessing}>
-              <Ionicons name="chatbox-ellipses-outline" size={30} color="black" />
-            </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
       </SafeAreaView>
     );
   }
-
-  const showHeader = false;
 
   return (
     <View style={styles.container}>
       {showHeader && (
         <Header currentProject={currentProject} onProjectChange={setCurrentProject} />
       )}
-      <CameraView style={styles.camera} facing={facing} ref={cameraRef} />
+      {cameraPermission && (
+        <CameraView
+          key={cameraKey}
+          style={styles.camera}
+          facing={facing}
+          ref={cameraRef}
+        />
+      )}
       <View style={styles.shutterContainer}>
         <TouchableOpacity style={styles.button} onPress={takePic}>
           <Ionicons name="aperture-outline" size={100} color="white" />
@@ -177,16 +231,6 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     padding: 10,
   },
-  btnContainer: {
-    flexDirection: "row",
-    justifyContent: "space-evenly",
-    backgroundColor: "white",
-  },
-  btn: {
-    justifyContent: "center",
-    margin: 10,
-    elevation: 5,
-  },
   imageContainer: {
     height: "95%",
     width: "100%",
@@ -201,23 +245,32 @@ const styles = StyleSheet.create({
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: "#ddd",
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  descriptionText: {
-    fontSize: 18,
-    color: "#333",
-    lineHeight: 24,
-  },
-  loadingContainer: {
     alignItems: "center",
     justifyContent: "center",
-    flex: 1,
+  },
+  lottieContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmText: {
+    marginTop: 12,
+    fontSize: 16,
+    fontWeight: "500",
+    textAlign: "center",
+    color: "#333",
   },
   loadingText: {
-    marginTop: 10,
     fontSize: 16,
     color: "#666",
+  },
+  btnContainer: {
+    flexDirection: "row",
+    justifyContent: "space-evenly",
+    backgroundColor: "white",
+  },
+  btn: {
+    justifyContent: "center",
+    margin: 10,
+    elevation: 5,
   },
 });
