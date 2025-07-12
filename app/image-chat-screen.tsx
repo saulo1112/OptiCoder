@@ -16,7 +16,6 @@ import { analyzeImageWithGemini } from "../services/GeminiService";
 import { ImageStore } from "../services/ImageStore";
 import { transcribeAudioWithWhisper } from "../services/transcribeAudioWithWhisper";
 
-// Tipo para manejar el historial de chat correctamente tipado
 type ChatTurn = {
   role: "user" | "model";
   content: string;
@@ -97,7 +96,6 @@ export default function ImageChatScreen() {
         const userText = await transcribeAudioWithWhisper(uri);
         setMessages((prev) => [...prev, "🎙️ Usuario: " + userText]);
 
-        // 🔹 Añadir turno del usuario al historial
         const newHistory: ChatTurn[] = [...chatHistory, { role: "user", content: userText }];
 
         const response = await analyzeImageWithGemini(imageBase64, userText);
@@ -138,6 +136,10 @@ export default function ImageChatScreen() {
           <Ionicons name={isRecording ? "stop" : "mic-outline"} size={36} color="white" />
         </TouchableOpacity>
 
+        <TouchableOpacity style={styles.skipButton} onPress={() => Speech.stop()}>
+          <Text style={styles.skipText}>⏭️</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.retakeButton} onPress={handleRetakePhoto}>
           <Text style={styles.retakeText}>📸 Tomar otra foto</Text>
         </TouchableOpacity>
@@ -170,8 +172,18 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     elevation: 4,
   },
+  skipButton: {
+    marginLeft: 8,
+    backgroundColor: "#ffcc00",
+    padding: 12,
+    borderRadius: 8,
+  },
+  skipText: {
+    color: "#000",
+    fontWeight: "bold",
+  },
   retakeButton: {
-    marginLeft: 16,
+    marginLeft: 8,
     backgroundColor: "#03dac6",
     padding: 12,
     borderRadius: 8,
