@@ -12,6 +12,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import VoiceVisualizer from "../components/VoiceVisualizer";
 import { analyzeImageWithGemini } from "../services/GeminiService";
 import { ImageStore } from "../services/ImageStore";
 import { transcribeAudioWithWhisper } from "../services/transcribeAudioWithWhisper";
@@ -27,9 +29,7 @@ export default function ImageChatScreen() {
   const voiceLang = selectedLanguage === "es" ? "es-ES" : "en-US";
 
   const imageBase64 = ImageStore.getBase64() ?? "";
-
-  const [messages, setMessages] = useState<string[]>([]);
-  const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
+  const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
 
@@ -39,18 +39,13 @@ export default function ImageChatScreen() {
         const initialPrompt = `Actúa como un asistente experto en desarrollo móvil. Observa la imagen proporcionada y ofrece una descripción breve. Luego, formula una pregunta amable que motive al usuario a continuar la conversación.`;
 
         const response = await analyzeImageWithGemini(imageBase64, initialPrompt);
-        const assistantMessage = `🤖 Asistente: ${response}\n¿Sobre qué parte de este proyecto deseas saber más? Toca el micrófono para responder.`;
+        const assistantText = `${response} ¿Sobre qué parte de este proyecto deseas saber más?`;
 
-        setMessages((prev) => [...prev, assistantMessage]);
-        setChatHistory([{ role: "model", content: response }]);
-
-        Speech.speak(response + ". ¿Sobre qué parte de este proyecto deseas saber más?", {
-          language: voiceLang,
-        });
+        setMessages([{ role: "model", content: assistantText }]);
+        Speech.speak(assistantText, { language: voiceLang });
       } catch (err) {
-        console.error("Error al procesar la imagen:", err);
         const fallback = "No se pudo procesar la imagen. Intenta nuevamente.";
-        setMessages((prev) => [...prev, "🤖 Asistente: " + fallback]);
+        setMessages([{ role: "model", content: fallback }]);
         Speech.speak(fallback, { language: voiceLang });
       }
     };
@@ -59,57 +54,41 @@ export default function ImageChatScreen() {
   }, []);
 
   const startRecording = async () => {
-    try {
-      if (isRecording) return;
-
-      const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) {
-        Alert.alert("Permiso requerido", "Se necesita acceso al micrófono.");
-        return;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(recording);
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Error al iniciar grabación:", err);
+    if (isRecording) return;
+    const { granted } = await Audio.requestPermissionsAsync();
+    if (!granted) {
+      Alert.alert("Permiso requerido", "Se necesita acceso al micrófono.");
+      return;
     }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+
+    const { recording } = await Audio.Recording.createAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
+    );
+    setRecording(recording);
+    setIsRecording(true);
   };
 
   const stopRecording = async () => {
-    try {
-      if (!recording) return;
+    if (!recording) return;
 
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setIsRecording(false);
-      setRecording(null);
+    await recording.stopAndUnloadAsync();
+    const uri = recording.getURI();
+    setIsRecording(false);
+    setRecording(null);
 
-      if (uri) {
-        const userText = await transcribeAudioWithWhisper(uri);
-        setMessages((prev) => [...prev, "🎙️ Usuario: " + userText]);
+    if (uri) {
+      const userText = await transcribeAudioWithWhisper(uri);
+      const userTurn: ChatTurn = { role: "user", content: userText };
+      const response = await analyzeImageWithGemini(imageBase64, userText);
+      const assistantTurn: ChatTurn = { role: "model", content: response };
 
-        const newHistory: ChatTurn[] = [...chatHistory, { role: "user", content: userText }];
-
-        const response = await analyzeImageWithGemini(imageBase64, userText);
-        const assistantText = "🤖 Asistente: " + response;
-
-        setMessages((prev) => [...prev, assistantText]);
-        setChatHistory([...newHistory, { role: "model", content: response }]);
-
-        Speech.speak(response, { language: voiceLang });
-      }
-    } catch (err) {
-      console.error("Error al detener grabación:", err);
-      setIsRecording(false);
-      setRecording(null);
+      setMessages((prev) => [...prev, userTurn, assistantTurn]);
+      Speech.speak(response, { language: voiceLang });
     }
   };
 
@@ -125,9 +104,24 @@ export default function ImageChatScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.chatArea}>
+      <View style={styles.visualizerArea}>
+        <VoiceVisualizer isActive={isRecording} />
+      </View>
+
+      <ScrollView style={styles.chatBox}>
         {messages.map((msg, index) => (
-          <Text key={index} style={styles.message}>{msg}</Text>
+          <View
+            key={index}
+            style={[
+              styles.bubble,
+              msg.role === "user" ? styles.userBubble : styles.modelBubble,
+            ]}
+          >
+            <Text style={styles.bubbleText}>
+              {msg.role === "user" ? "🎙️ " : "🤖 "}
+              {msg.content}
+            </Text>
+          </View>
         ))}
       </ScrollView>
 
@@ -149,22 +143,47 @@ export default function ImageChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
-  chatArea: {
-    padding: 16,
-    justifyContent: "flex-end",
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  message: {
-    color: "#fff",
-    fontSize: 18,
-    marginBottom: 8,
+  visualizerArea: {
+    flex: 2,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chatBox: {
+    maxHeight: 200,
+    width: "90%",
+    marginBottom: 10,
+  },
+  bubble: {
+    borderRadius: 16,
+    padding: 12,
+    marginVertical: 4,
+    maxWidth: "90%",
+  },
+  userBubble: {
+    backgroundColor: "#d0e8ff",
+    alignSelf: "flex-end",
+  },
+  modelBubble: {
+    backgroundColor: "#f1f1f1",
+    alignSelf: "flex-start",
+  },
+  bubbleText: {
+    fontSize: 16,
+    color: "#000",
   },
   controls: {
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
+    width: "100%",
     padding: 16,
-    backgroundColor: "#1a1a1a",
+    backgroundColor: "#fff",
   },
   micButton: {
     backgroundColor: "#6200ee",
