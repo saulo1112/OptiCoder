@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 
+import LottieView from "lottie-react-native";
 import VoiceVisualizer from "../components/VoiceVisualizer";
 import { analyzeImageWithGemini } from "../services/GeminiService";
 import { ImageStore } from "../services/ImageStore";
@@ -32,21 +33,34 @@ export default function ImageChatScreen() {
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   useEffect(() => {
     const runInitialPrompt = async () => {
       try {
+        setIsLoading(true);
         const initialPrompt = `Actúa como un asistente experto en desarrollo móvil. Observa la imagen proporcionada y ofrece una descripción breve. Luego, formula una pregunta amable que motive al usuario a continuar la conversación.`;
 
         const response = await analyzeImageWithGemini(imageBase64, initialPrompt);
         const assistantText = `${response} ¿Sobre qué parte de este proyecto deseas saber más?`;
 
         setMessages([{ role: "model", content: assistantText }]);
-        Speech.speak(assistantText, { language: voiceLang });
+        setIsSpeaking(true);
+        Speech.speak(assistantText, {
+          language: voiceLang,
+          onDone: () => setIsSpeaking(false),
+        });
       } catch (err) {
         const fallback = "No se pudo procesar la imagen. Intenta nuevamente.";
         setMessages([{ role: "model", content: fallback }]);
-        Speech.speak(fallback, { language: voiceLang });
+        setIsSpeaking(true);
+        Speech.speak(fallback, {
+          language: voiceLang,
+          onDone: () => setIsSpeaking(false),
+        });
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -84,11 +98,18 @@ export default function ImageChatScreen() {
     if (uri) {
       const userText = await transcribeAudioWithWhisper(uri);
       const userTurn: ChatTurn = { role: "user", content: userText };
-      const response = await analyzeImageWithGemini(imageBase64, userText);
-      const assistantTurn: ChatTurn = { role: "model", content: response };
 
+      setIsLoading(true);
+      const response = await analyzeImageWithGemini(imageBase64, userText);
+      setIsLoading(false);
+
+      const assistantTurn: ChatTurn = { role: "model", content: response };
       setMessages((prev) => [...prev, userTurn, assistantTurn]);
-      Speech.speak(response, { language: voiceLang });
+      setIsSpeaking(true);
+      Speech.speak(response, {
+        language: voiceLang,
+        onDone: () => setIsSpeaking(false),
+      });
     }
   };
 
@@ -98,12 +119,39 @@ export default function ImageChatScreen() {
 
   const handleRetakePhoto = () => {
     Speech.stop();
+    setIsSpeaking(false);
     ImageStore.clear();
     router.push("/camera");
   };
 
   return (
     <SafeAreaView style={styles.container}>
+      <LottieView
+        source={require("../assets/animations/opticoderlogo.json")}
+        autoPlay
+        loop={false}
+        style={styles.logo}
+      />
+
+      <View style={styles.animationArea}>
+        {isLoading && (
+          <LottieView
+            source={require("../assets/animations/loading-screen.json")}
+            autoPlay
+            loop
+            style={styles.loadingAnimation}
+          />
+        )}
+        {!isLoading && isSpeaking && (
+          <LottieView
+            source={require("../assets/animations/robot-speaking.json")}
+            autoPlay
+            loop
+            style={styles.robotAnimation}
+          />
+        )}
+      </View>
+
       <View style={styles.visualizerArea}>
         <VoiceVisualizer isActive={isRecording} />
       </View>
@@ -130,7 +178,13 @@ export default function ImageChatScreen() {
           <Ionicons name={isRecording ? "stop" : "mic-outline"} size={36} color="white" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.skipButton} onPress={() => Speech.stop()}>
+        <TouchableOpacity
+          style={styles.skipButton}
+          onPress={() => {
+            Speech.stop();
+            setIsSpeaking(false);
+          }}
+        >
           <Text style={styles.skipText}>⏭️</Text>
         </TouchableOpacity>
 
@@ -149,13 +203,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  logo: {
+    width: 100,
+    height: 100,
+    alignSelf: "center",
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  animationArea: {
+    height: 100,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  loadingAnimation: {
+    width: 80,
+    height: 80,
+    position: "absolute",
+    top: -5, // ← mueve loading ↑ o ↓
+  },
+  robotAnimation: {
+    width: 140,
+    height: 180,
+    position: "absolute",
+    top: -50, // ← mueve robot ↑ o ↓
+  },
   visualizerArea: {
     flex: 2,
     justifyContent: "center",
     alignItems: "center",
+    marginTop: -150, // ← mueve ondas ↑ o ↓
   },
   chatBox: {
-    maxHeight: 200,
+    maxHeight: "60%",
     width: "90%",
     marginBottom: 10,
   },
@@ -212,3 +293,4 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 });
+
