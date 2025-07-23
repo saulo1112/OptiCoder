@@ -20,7 +20,7 @@ npx expo run:android
 ```
 
 ### Alternativas:
-- Para desarrollo rápido en Expo Go (con limitaciones):  
+- Para desarrollo rápido en Expo Go (con limitaciones - no recomendado):  
   ```bash
   npx expo start
   ```
@@ -95,6 +95,6 @@ OptiCoder/
 
 ## 👨‍💻 Autor
 
-Desarrollado por **Saulo Quiñones Góngora**
-Dirigido por **Germán Cueya Simbro**  
-**Programa Delfín 2025 – Aplicación móvil accesible con IA**
+- Desarrollado por **Saulo Quiñones Góngora**
+- Dirigido por **Germán Cuaya Simbro**  
+- **Programa Delfín 2025 – Aplicación móvil accesible con IA**
