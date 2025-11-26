@@ -1,5 +1,8 @@
 const GEMINI_API_KEY = "***REMOVED_GOOGLE_KEY***";
 
+const BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_MODEL = "gemini-flash-latest"; // alias soportado en v1beta
+
 type ChatTurn = {
   role: "user" | "model";
   content: string;
@@ -17,24 +20,27 @@ export async function analyzeImageWithGemini(
       throw new Error("La imagen base64 es inválida o está vacía.");
     }
 
-    // Construimos el contenido para Gemini: basePrompt + historial + nuevo turno
+    if (!GEMINI_API_KEY) {
+      throw new Error("No hay una API key de Gemini configurada.");
+    }
+
     const contents: any[] = [];
 
-    // Turno inicial: imagen + basePrompt (solo una vez)
+    // Turno inicial: prompt + imagen
     contents.push({
       role: "user",
       parts: [
         { text: basePrompt },
         {
-          inline_data: {
-            mime_type: "image/jpeg",
+          inlineData: {
+            mimeType: "image/jpeg",
             data: base64Image,
           },
         },
       ],
     });
 
-    // Agregar historial si existe
+    // Historial previo
     for (const turn of history) {
       contents.push({
         role: turn.role,
@@ -42,7 +48,7 @@ export async function analyzeImageWithGemini(
       });
     }
 
-    // Agregar el nuevo prompt del usuario si existe
+    // Prompt adicional del usuario
     if (userPrompt) {
       contents.push({
         role: "user",
@@ -52,26 +58,32 @@ export async function analyzeImageWithGemini(
 
     const requestBody = { contents };
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      }
-    );
+    const url = `${BASE_URL}/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
-    const data = await response.json();
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error("Gemini API error:", data);
-      throw new Error(data.error?.message || "Fallo en el análisis de la imagen.");
+      console.error("Gemini API error HTTP:", response.status, response.statusText);
+      console.error("Gemini API error body:", data);
+      throw new Error(
+        (data as any)?.error?.message ||
+          `Fallo en el análisis de la imagen. Código ${response.status}.`
+      );
     }
 
-    const output = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const output =
+      (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text ??
+      (data as any)?.candidates?.[0]?.output_text;
+
     return output || "No se encontró una descripción.";
-  } catch (error) {
-    console.error("Gemini API error:", error);
-    throw new Error("Fallo en el análisis de la imagen.");
+  } catch (error: any) {
+    console.error("Gemini API error (catch):", error);
+    throw new Error(error?.message || "Fallo en el análisis de la imagen.");
   }
 }

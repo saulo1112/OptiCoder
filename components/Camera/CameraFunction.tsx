@@ -90,9 +90,12 @@ export default function CameraFunction() {
         Speech.speak("No se pudo capturar imagen en formato base64.", { language: voiceLang });
         setButtonsVisible(true);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error analizando la imagen:", error);
-      Speech.speak("Fallo en el análisis. Intenta nuevamente.", { language: voiceLang });
+
+      const message = error?.message ?? "Fallo en el análisis de la imagen, intenta nuevamente.";
+
+      Speech.speak(message, { language: voiceLang });
       setButtonsVisible(true);
     } finally {
       setIsAnalyzing(false);

@@ -19,7 +19,7 @@ export default function WelcomeScreen() {
     Speech.speak(welcomeText, {
       language: "es-ES",
       onDone: () => {
-        router.push("/camera");
+        router.push("/camera");  // Navigate to the camera screen after speech is done
       },
     });
 
