@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "AuravizApp",
-    "slug": "AuravizApp",
+    "name": "OptiCoder",
+    "slug": "OptiCoder",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/OptiCoderLogo.png",
     "scheme": "auravizapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -17,7 +17,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.sau11_12.AuravizApp"
+      "package": "com.sau11_12.OptiCoder"
     },
     "web": {
       "bundler": "metro",

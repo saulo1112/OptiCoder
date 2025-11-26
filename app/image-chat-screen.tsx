@@ -26,7 +26,8 @@ type ChatTurn = {
 
 export default function ImageChatScreen() {
   const router = useRouter();
-  const { selectedLanguage = "es" } = useLocalSearchParams<{ selectedLanguage?: string }>();
+  const { selectedLanguage = "es" } =
+    useLocalSearchParams<{ selectedLanguage?: string }>();
   const voiceLang = selectedLanguage === "es" ? "es-ES" : "en-US";
 
   const imageBase64 = ImageStore.getBase64() ?? "";
@@ -35,7 +36,9 @@ export default function ImageChatScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [lastSpokenIndex, setLastSpokenIndex] = useState<number>(-1); // lo dejamos aunque ya no lo usemos
 
+  // === PROMPT INICIAL ===
   useEffect(() => {
     const runInitialPrompt = async () => {
       try {
@@ -45,20 +48,11 @@ export default function ImageChatScreen() {
         const response = await analyzeImageWithGemini(imageBase64, initialPrompt);
         const assistantText = `${response} ¿Sobre qué parte de este proyecto deseas saber más?`;
 
+        // Sólo guardamos el mensaje del modelo; el audio lo maneja el otro useEffect
         setMessages([{ role: "model", content: assistantText }]);
-        setIsSpeaking(true);
-        Speech.speak(assistantText, {
-          language: voiceLang,
-          onDone: () => setIsSpeaking(false),
-        });
       } catch (err) {
         const fallback = "No se pudo procesar la imagen. Intenta nuevamente.";
         setMessages([{ role: "model", content: fallback }]);
-        setIsSpeaking(true);
-        Speech.speak(fallback, {
-          language: voiceLang,
-          onDone: () => setIsSpeaking(false),
-        });
       } finally {
         setIsLoading(false);
       }
@@ -66,6 +60,28 @@ export default function ImageChatScreen() {
 
     runInitialPrompt();
   }, []);
+
+  // === TTS: lee SIEMPRE el último mensaje del modelo ===
+  useEffect(() => {
+    if (!messages.length) return;
+
+    const last = messages[messages.length - 1];
+    if (last.role !== "model" || !last.content?.trim()) return;
+
+    console.log("[TTS] hablando último mensaje de modelo:", last.content.slice(0, 80));
+    Speech.stop(); // por si quedaba algo anterior
+    setIsSpeaking(true);
+
+    Speech.speak(last.content, {
+      language: voiceLang,
+      onDone: () => setIsSpeaking(false),
+      onStopped: () => setIsSpeaking(false),
+      onError: (e) => {
+        console.log("[TTS] error en image-chat-screen:", e);
+        setIsSpeaking(false);
+      },
+    });
+  }, [messages, voiceLang]);
 
   const startRecording = async () => {
     if (isRecording) return;
@@ -104,12 +120,8 @@ export default function ImageChatScreen() {
       setIsLoading(false);
 
       const assistantTurn: ChatTurn = { role: "model", content: response };
+      // Sólo actualizamos mensajes; el useEffect de arriba se encargará de hablar
       setMessages((prev) => [...prev, userTurn, assistantTurn]);
-      setIsSpeaking(true);
-      Speech.speak(response, {
-        language: voiceLang,
-        onDone: () => setIsSpeaking(false),
-      });
     }
   };
 
@@ -293,4 +305,3 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 });
-
