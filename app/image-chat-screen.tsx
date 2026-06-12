@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   AudioModule,
-  RecordingPresets,
   setAudioModeAsync,
   useAudioRecorder,
 } from "expo-audio";
@@ -20,10 +19,18 @@ import {
 } from "react-native";
 
 import VoiceVisualizer from "../components/VoiceVisualizer";
+import { Theme } from "../constants/Theme";
 import { analyzeImageWithGemini } from "../services/GeminiService";
 import { ImageStore } from "../services/ImageStore";
+import {
+  VOICE_COMMAND_RECORDING_OPTIONS,
+  waitForSpeechEnd,
+} from "../services/recordingOptions";
 import { TTSService } from "../services/TTSService";
-import { transcribeAudioWithWhisper } from "../services/transcribeAudioWithWhisper";
+import {
+  TRANSCRIPTION_FAILED,
+  transcribeAudioWithWhisper,
+} from "../services/transcribeAudioWithWhisper";
 
 type ChatTurn = {
   role: "user" | "model";
@@ -36,7 +43,7 @@ export default function ImageChatScreen() {
     useLocalSearchParams<{ selectedLanguage?: string }>();
   const voiceLang = selectedLanguage === "es" ? "es-ES" : "en-US";
 
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorder = useAudioRecorder(VOICE_COMMAND_RECORDING_OPTIONS);
 
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -74,12 +81,21 @@ export default function ImageChatScreen() {
       setProcessing(true);
       setIsLoading(true);
       try {
-        const initialPrompt = `Actúa como un asistente experto en desarrollo móvil. Observa la imagen proporcionada y ofrece una descripción breve. Luego, formula una pregunta amable que motive al usuario a continuar la conversación.`;
+        // Reutiliza la descripción generada durante la captura para evitar
+        // una segunda llamada a Gemini antes de la primera respuesta hablada.
+        const cachedDescription = ImageStore.consumePendingDescription();
 
-        const response = await analyzeImageWithGemini(
-          ImageStore.getImages(),
-          initialPrompt
-        );
+        let response: string;
+        if (cachedDescription && cachedDescription.trim()) {
+          response = cachedDescription;
+        } else {
+          const initialPrompt = `Actúa como un asistente experto en desarrollo móvil. Observa la imagen proporcionada y ofrece una descripción breve. Luego, formula una pregunta amable que motive al usuario a continuar la conversación.`;
+
+          response = await analyzeImageWithGemini(
+            ImageStore.getImages(),
+            initialPrompt
+          );
+        }
         const assistantText = `${response} ¿Sobre qué parte de este proyecto deseas saber más?`;
 
         // Sólo guardamos el mensaje del modelo; el audio lo maneja el otro useEffect
@@ -133,13 +149,13 @@ export default function ImageChatScreen() {
       const loop = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.25,
-            duration: 500,
+            toValue: 1.18,
+            duration: 600,
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 500,
+            duration: 600,
             useNativeDriver: true,
           }),
         ])
@@ -182,6 +198,18 @@ export default function ImageChatScreen() {
     } finally {
       setProcessing(false);
     }
+
+    // Parada automática: si la grabación arrancó, espera el fin del habla
+    // (máx. 8 s o 800 ms de silencio) y detiene. Se hace fuera del try/finally
+    // para que isProcessing vuelva a false y el usuario pueda detener con un
+    // toque manual antes de que venza el temporizador.
+    if (isRecordingRef.current) {
+      await waitForSpeechEnd(recorder);
+      // Sólo detenemos si el usuario no lo hizo ya manualmente.
+      if (isRecordingRef.current) {
+        stopRecording();
+      }
+    }
   };
 
   const stopRecording = async () => {
@@ -202,6 +230,20 @@ export default function ImageChatScreen() {
       if (isMountedRef.current) setIsLoading(true);
 
       const userText = await transcribeAudioWithWhisper(uri, selectedLanguage);
+
+      // Fallo de transcripción: no enviar el centinela a Gemini como si fuera
+      // una pregunta real; avisar por voz y dejar que el usuario reintente.
+      if (userText === TRANSCRIPTION_FAILED) {
+        TTSService.speak(
+          "No pude escucharte. Por favor, intenta de nuevo.",
+          voiceLang,
+          () => {
+            if (isMountedRef.current && !isProcessingRef.current) startRecording(true);
+          }
+        );
+        return;
+      }
+
       const userTurn: ChatTurn = { role: "user", content: userText };
 
       const response = await analyzeImageWithGemini(
@@ -264,6 +306,14 @@ export default function ImageChatScreen() {
     return -1;
   })();
 
+  const statusLabelText = isLoading
+    ? "Analizando imagen..."
+    : isSpeaking
+    ? "OptiCoder está respondiendo"
+    : isRecording
+    ? "Escuchando..."
+    : "";
+
   return (
     <SafeAreaView style={styles.container}>
       <LottieView
@@ -292,11 +342,27 @@ export default function ImageChatScreen() {
         )}
       </View>
 
+      <View style={styles.statusLabelContainer}>
+        <Text style={styles.statusLabel}>{statusLabelText}</Text>
+      </View>
+
       <View style={styles.visualizerArea}>
         <VoiceVisualizer isActive={isRecording} />
       </View>
 
       <ScrollView style={styles.chatBox} ref={scrollViewRef}>
+        {messages.length === 0 && !isLoading && (
+          <View style={styles.emptyState}>
+            <Ionicons
+              name="chatbubble-ellipses-outline"
+              size={40}
+              color={Theme.colors.textDisabled}
+            />
+            <Text style={styles.emptyStateText}>
+              La descripción de la imagen aparecerá aquí
+            </Text>
+          </View>
+        )}
         {messages.map((msg, index) => (
           <View
             key={index}
@@ -305,7 +371,13 @@ export default function ImageChatScreen() {
               msg.role === "user" ? styles.userBubble : styles.modelBubble,
             ]}
           >
-            <Text style={styles.bubbleText}>
+            <Text
+              style={
+                msg.role === "user"
+                  ? styles.userBubbleText
+                  : styles.modelBubbleText
+              }
+            >
               {msg.role === "user" ? "🎙️ " : "🤖 "}
               {msg.content}
             </Text>
@@ -319,7 +391,11 @@ export default function ImageChatScreen() {
                 <Ionicons
                   name="repeat"
                   size={18}
-                  color={isSpeaking || isProcessing ? "#aaa" : "#6200ee"}
+                  color={
+                    isSpeaking || isProcessing
+                      ? Theme.colors.textDisabled
+                      : Theme.colors.primary
+                  }
                 />
               </TouchableOpacity>
             )}
@@ -330,7 +406,11 @@ export default function ImageChatScreen() {
       <View style={styles.controls}>
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <TouchableOpacity
-            style={[styles.micButton, isProcessing && styles.micButtonDisabled]}
+            style={[
+              styles.micButton,
+              isRecording && styles.micButtonRecording,
+              isProcessing && styles.micButtonDisabled,
+            ]}
             onPress={handleMicPress}
             disabled={isProcessing}
             accessibilityLabel={
@@ -340,7 +420,7 @@ export default function ImageChatScreen() {
             <Ionicons
               name={isRecording ? "stop" : "mic-outline"}
               size={36}
-              color="white"
+              color={Theme.colors.textOnPrimary}
             />
           </TouchableOpacity>
         </Animated.View>
@@ -352,11 +432,16 @@ export default function ImageChatScreen() {
             setIsSpeaking(false);
           }}
         >
-          <Text style={styles.skipText}>⏭️</Text>
+          <Ionicons
+            name="play-skip-forward-outline"
+            size={22}
+            color={Theme.colors.primary}
+          />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.retakeButton} onPress={handleRetakePhoto}>
-          <Text style={styles.retakeText}>📸 Tomar otra foto</Text>
+          <Ionicons name="camera-outline" size={22} color={Theme.colors.primary} />
+          <Text style={styles.retakeText}>Nueva foto</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -366,19 +451,19 @@ export default function ImageChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: Theme.colors.background,
     alignItems: "center",
     justifyContent: "space-between",
   },
   logo: {
-    width: 100,
-    height: 100,
+    width: 80,
+    height: 80,
     alignSelf: "center",
-    marginTop: 20,
-    marginBottom: 10,
+    marginTop: Theme.spacing.md,
+    marginBottom: Theme.spacing.sm,
   },
   animationArea: {
-    height: 100,
+    height: 110,
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
@@ -396,6 +481,17 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: -50, // ← mueve robot ↑ o ↓
   },
+  statusLabelContainer: {
+    minHeight: 20,
+    width: "100%",
+  },
+  statusLabel: {
+    fontSize: Theme.typography.sm,
+    color: Theme.colors.textSecondary,
+    marginBottom: Theme.spacing.xs,
+    textAlign: "center",
+    letterSpacing: 0.3,
+  },
   visualizerArea: {
     flex: 2,
     justifyContent: "center",
@@ -403,68 +499,97 @@ const styles = StyleSheet.create({
     marginTop: -150, // ← mueve ondas ↑ o ↓
   },
   chatBox: {
-    maxHeight: "60%",
+    maxHeight: "58%",
     width: "90%",
-    marginBottom: 10,
+    marginBottom: Theme.spacing.sm,
+    paddingHorizontal: Theme.spacing.md,
+  },
+  emptyState: {
+    alignItems: "center",
+    marginTop: Theme.spacing.lg,
+    opacity: 0.7,
+  },
+  emptyStateText: {
+    color: Theme.colors.textSecondary,
+    fontSize: Theme.typography.sm,
+    marginTop: Theme.spacing.sm,
+    textAlign: "center",
   },
   bubble: {
-    borderRadius: 16,
-    padding: 12,
-    marginVertical: 4,
-    maxWidth: "90%",
+    borderRadius: Theme.radius.md,
+    padding: Theme.spacing.md,
+    marginVertical: Theme.spacing.xs,
+    maxWidth: "88%",
+    ...Theme.shadow.sm,
   },
   userBubble: {
-    backgroundColor: "#d0e8ff",
+    backgroundColor: Theme.colors.bubbleUser,
     alignSelf: "flex-end",
   },
   modelBubble: {
-    backgroundColor: "#f1f1f1",
+    backgroundColor: Theme.colors.bubbleAI,
     alignSelf: "flex-start",
   },
-  bubbleText: {
-    fontSize: 16,
-    color: "#000",
+  userBubbleText: {
+    fontSize: Theme.typography.base,
+    lineHeight: 24,
+    color: Theme.colors.bubbleUserText,
+  },
+  modelBubbleText: {
+    fontSize: Theme.typography.base,
+    lineHeight: 24,
+    color: Theme.colors.bubbleAIText,
   },
   controls: {
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
     width: "100%",
-    padding: 16,
-    backgroundColor: "#fff",
+    paddingVertical: Theme.spacing.md,
+    paddingHorizontal: Theme.spacing.lg,
+    backgroundColor: Theme.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: Theme.colors.border,
+    ...Theme.shadow.sm,
+    shadowOffset: { width: 0, height: -1 }, // sombra hacia arriba
   },
   micButton: {
-    backgroundColor: "#6200ee",
-    padding: 16,
-    borderRadius: 50,
-    elevation: 4,
+    backgroundColor: Theme.colors.primary,
+    width: 68,
+    height: 68,
+    borderRadius: Theme.radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Theme.shadow.md,
+  },
+  micButtonRecording: {
+    backgroundColor: Theme.colors.error,
   },
   micButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   skipButton: {
-    marginLeft: 8,
-    backgroundColor: "#ffcc00",
-    padding: 12,
-    borderRadius: 8,
-  },
-  skipText: {
-    color: "#000",
-    fontWeight: "bold",
+    marginLeft: Theme.spacing.sm,
+    backgroundColor: Theme.colors.primaryLight,
+    padding: Theme.spacing.sm,
+    borderRadius: Theme.radius.sm,
   },
   retakeButton: {
-    marginLeft: 8,
-    backgroundColor: "#03dac6",
-    padding: 12,
-    borderRadius: 8,
+    marginLeft: Theme.spacing.sm,
+    backgroundColor: Theme.colors.primaryLight,
+    padding: Theme.spacing.sm,
+    borderRadius: Theme.radius.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Theme.spacing.xs,
   },
   retakeText: {
-    color: "#000",
-    fontWeight: "bold",
+    color: Theme.colors.primary,
+    fontSize: Theme.typography.sm,
   },
   repeatButton: {
     alignSelf: "flex-start",
-    marginTop: 6,
-    padding: 4,
+    marginTop: Theme.spacing.xs,
+    padding: Theme.spacing.xs,
   },
 });

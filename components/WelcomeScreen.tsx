@@ -3,6 +3,7 @@ import * as Speech from "expo-speech";
 import LottieView from "lottie-react-native";
 import { useEffect, useRef } from "react";
 import { Animated, StyleSheet, View } from "react-native";
+import { Theme } from "../constants/Theme";
 
 export default function WelcomeScreen() {
   const router = useRouter();
@@ -47,21 +48,24 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: Theme.colors.background,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: Theme.spacing.lg,
   },
   logo: {
-    width: 250,
-    height: 250,
+    // Tamaño fijo del logo de bienvenida (pieza de marca, no token)
+    width: 260,
+    height: 260,
     alignSelf: "center",
-    marginBottom: 30,
+    marginBottom: Theme.spacing.xl,
   },
   text: {
-    fontSize: 22,
-    color: "#0057A4", // OptiCoder blue
+    fontSize: Theme.typography.lg,
+    color: Theme.colors.primary,
     textAlign: "center",
-    fontWeight: "600",
+    fontWeight: Theme.typography.semiBold,
+    lineHeight: 32,
+    letterSpacing: 0.2,
   },
 });

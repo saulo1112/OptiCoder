@@ -1,4 +1,5 @@
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { Theme } from '@/constants/Theme';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
@@ -29,7 +30,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         {/* No es necesario declarar index explícitamente */}
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style="light" backgroundColor={Theme.colors.primaryDark} />
     </ThemeProvider>
   );
 }

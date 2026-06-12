@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Theme } from '../constants/Theme';
 
 const dummyProjects = ['Proyecto 1', 'Proyecto 2', 'Proyecto 3'];
 
@@ -27,7 +28,7 @@ export default function Header({
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.headerContainer}>
         <TouchableOpacity onPress={() => {}}>
-          <Ionicons name="menu" size={24} color="black" />
+          <Ionicons name="menu" size={24} color={Theme.colors.textOnPrimary} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -35,11 +36,11 @@ export default function Header({
           style={styles.projectSelector}
         >
           <Text style={styles.title}>{currentProject}</Text>
-          <Ionicons name="chevron-down" size={20} color="black" />
+          <Ionicons name="chevron-down" size={20} color={Theme.colors.textOnPrimary} />
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => {}}>
-          <Ionicons name="ellipsis-vertical" size={24} color="black" />
+          <Ionicons name="ellipsis-vertical" size={24} color={Theme.colors.textOnPrimary} />
         </TouchableOpacity>
       </View>
 
@@ -73,39 +74,44 @@ export default function Header({
 
 const styles = StyleSheet.create({
   safeArea: {
-    backgroundColor: '#eee',
+    backgroundColor: Theme.colors.primary,
   },
   headerContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#eee',
+    paddingHorizontal: Theme.spacing.md,
+    paddingVertical: Theme.spacing.sm,
+    backgroundColor: Theme.colors.primary,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: Theme.typography.md,
+    fontWeight: Theme.typography.semiBold,
+    color: Theme.colors.textOnPrimary,
   },
   projectSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: Theme.spacing.xs,
   },
   modalBackground: {
     flex: 1,
     justifyContent: 'flex-start',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: Theme.colors.overlay,
   },
   modalContainer: {
+    // Offsets propios del posicionamiento del modal, no del sistema de espaciado
     marginTop: 80,
     marginHorizontal: 40,
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 10,
-    elevation: 10,
+    backgroundColor: Theme.colors.surface,
+    borderRadius: Theme.radius.md,
+    padding: Theme.spacing.sm,
+    ...Theme.shadow.lg,
   },
   projectItem: {
-    padding: 10,
+    paddingVertical: Theme.spacing.sm,
+    paddingHorizontal: Theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.colors.divider,
   },
 });

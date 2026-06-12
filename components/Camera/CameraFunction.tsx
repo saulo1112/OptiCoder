@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   AudioModule,
-  RecordingPresets,
   setAudioModeAsync,
   useAudioRecorder,
 } from "expo-audio";
@@ -11,6 +10,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import LottieView from "lottie-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   SafeAreaView,
   StyleSheet,
@@ -18,11 +18,23 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Theme } from "../../constants/Theme";
 import { analyzeImageWithGemini } from "../../services/GeminiService";
 import { ImageStore } from "../../services/ImageStore";
+import { VOICE_COMMAND_RECORDING_OPTIONS } from "../../services/recordingOptions";
 import { TTSService } from "../../services/TTSService";
-import { transcribeAudioWithWhisper } from "../../services/transcribeAudioWithWhisper";
+import {
+  TRANSCRIPTION_FAILED,
+  transcribeAudioWithWhisper,
+} from "../../services/transcribeAudioWithWhisper";
 import Header from "../Header";
+
+// Escucha de confirmación por voz: máximo 3 s, con corte anticipado si se
+// detectan 3 lecturas consecutivas (600 ms) por debajo de -40 dB tras oír voz.
+const MAX_LISTEN_MS = 3000;
+const METERING_POLL_INTERVAL_MS = 200;
+const SILENCE_THRESHOLD_DB = -40;
+const SILENCE_POLLS_TO_STOP = 3;
 
 export default function CameraFunction() {
   const { selectedLanguage = "es" } = useLocalSearchParams<{ selectedLanguage: string }>();
@@ -43,7 +55,7 @@ export default function CameraFunction() {
 
   const cameraRef = useRef<CameraView>(null);
   const lottieRef = useRef<LottieView>(null);
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorder = useAudioRecorder(VOICE_COMMAND_RECORDING_OPTIONS);
 
   useEffect(() => {
     (async () => {
@@ -71,7 +83,9 @@ export default function CameraFunction() {
 
     setIsProcessing(true);
     try {
-      const options = { quality: 1, base64: true, exif: false };
+      // quality 0.4: Gemini no necesita máxima resolución y el payload base64
+      // se reduce varias veces, recortando la latencia de subida en móvil.
+      const options = { quality: 0.4, base64: true, exif: false };
       const newPhoto = await cameraRef.current.takePictureAsync(options);
       setPhoto(newPhoto);
       setButtonsVisible(false);
@@ -83,8 +97,11 @@ export default function CameraFunction() {
         ImageStore.addImage(newPhoto.base64);
         setImageCount(ImageStore.getImages().length);
 
-        const shortPrompt = "Describe brevemente el contenido visible en esta imagen de código o interfaz.";
-        await analyzeImageWithGemini(newPhoto.base64, shortPrompt);
+        const shortPrompt = "You are an expert software development assistant. Observe this image and provide a brief but clear description of what you see. End your response with a natural, open-ended question that invites the user to ask more about what they see.";
+        const description = await analyzeImageWithGemini(newPhoto.base64, shortPrompt);
+        // La pantalla de chat consumirá esta descripción y se ahorrará la
+        // llamada inicial a Gemini (elimina el doble roundtrip).
+        ImageStore.setPendingDescription(description);
 
         setShowLottie(true);
         TTSService.speak(
@@ -125,6 +142,52 @@ export default function CameraFunction() {
     }
   };
 
+  // Lee el nivel de audio (dB) de forma defensiva: devuelve undefined si la
+  // API de estado o el metering no están disponibles en esta plataforma.
+  const getMeteringSafe = (): number | undefined => {
+    try {
+      const status =
+        typeof recorder.getStatus === "function" ? recorder.getStatus() : undefined;
+      return typeof status?.metering === "number" ? status.metering : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Espera el fin del habla: gana el primero entre el límite de 3 s y la
+  // detección de silencio. Sin metering disponible, el límite de 3 s decide.
+  const waitForSpeechEnd = async (): Promise<void> => {
+    let silenceInterval: ReturnType<typeof setInterval> | undefined;
+
+    const timeout = new Promise<void>((resolve) =>
+      setTimeout(resolve, MAX_LISTEN_MS)
+    );
+
+    const silenceDetected = new Promise<void>((resolve) => {
+      // Sólo cuenta silencio después de haber oído voz; si no, el silencio
+      // inicial (antes de que el usuario reaccione) cortaría la grabación.
+      let heardSpeech = false;
+      let silentPolls = 0;
+      silenceInterval = setInterval(() => {
+        const metering = getMeteringSafe();
+        if (metering === undefined) return;
+        if (metering >= SILENCE_THRESHOLD_DB) {
+          heardSpeech = true;
+          silentPolls = 0;
+        } else if (heardSpeech) {
+          silentPolls++;
+          if (silentPolls >= SILENCE_POLLS_TO_STOP) resolve();
+        }
+      }, METERING_POLL_INTERVAL_MS);
+    });
+
+    try {
+      await Promise.race([timeout, silenceDetected]);
+    } finally {
+      if (silenceInterval) clearInterval(silenceInterval);
+    }
+  };
+
   const listenForYes = async (): Promise<string> => {
     try {
       await setAudioModeAsync({
@@ -137,7 +200,7 @@ export default function CameraFunction() {
 
       console.log("🎤 Grabando...");
 
-      await new Promise(resolve => setTimeout(resolve, 6000));
+      await waitForSpeechEnd();
 
       await recorder.stop();
       const uri = recorder.uri;
@@ -145,6 +208,9 @@ export default function CameraFunction() {
 
       if (uri) {
         const result = await transcribeAudioWithWhisper(uri, selectedLanguage);
+        // Fallo de transcripción: tratar como respuesta vacía para que
+        // handleVoiceConfirmation vuelva a mostrar los botones sin navegar.
+        if (result === TRANSCRIPTION_FAILED) return "";
         return result || "";
       }
       return "";
@@ -184,7 +250,10 @@ export default function CameraFunction() {
         <Image style={styles.preview} source={{ uri: photo.uri }} />
         <View style={styles.descriptionContainer}>
           {isAnalyzing ? (
-            <Text style={styles.loadingText}>Analizando imagen...</Text>
+            <View style={styles.analyzingRow}>
+              <ActivityIndicator color={Theme.colors.primary} />
+              <Text style={styles.loadingText}>Analizando imagen...</Text>
+            </View>
           ) : showLottie ? (
             <View style={styles.lottieContainer}>
               <LottieView
@@ -203,11 +272,11 @@ export default function CameraFunction() {
           <View style={styles.btnContainer}>
             {mediaLibraryPermission && (
               <TouchableOpacity style={styles.btn} onPress={savePhoto}>
-                <Ionicons name="save-outline" size={30} color="black" />
+                <Ionicons name="save-outline" size={30} color={Theme.colors.textPrimary} />
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.btn} onPress={discardPhoto}>
-              <Ionicons name="trash-outline" size={30} color="black" />
+              <Ionicons name="trash-outline" size={30} color={Theme.colors.textPrimary} />
             </TouchableOpacity>
           </View>
         )}
@@ -238,7 +307,7 @@ export default function CameraFunction() {
             onPress={clearImages}
             accessibilityLabel="Borrar todas las imágenes de la sesión"
           >
-            <Ionicons name="trash-bin-outline" size={16} color="white" />
+            <Ionicons name="trash-bin-outline" size={16} color={Theme.colors.textOnPrimary} />
             <Text style={styles.clearImagesText}>Limpiar</Text>
           </TouchableOpacity>
         )}
@@ -253,7 +322,7 @@ export default function CameraFunction() {
           <Ionicons
             name="aperture-outline"
             size={100}
-            color={isProcessing ? "gray" : "white"}
+            color={isProcessing ? Theme.colors.textDisabled : Theme.colors.textOnPrimary}
           />
         </TouchableOpacity>
       </View>
@@ -262,17 +331,21 @@ export default function CameraFunction() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center" },
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    backgroundColor: Theme.colors.textPrimary, // base oscura para la cámara
+  },
   camera: { flex: 1 },
   shutterContainer: {
     position: "absolute",
-    bottom: 30,
+    bottom: Theme.spacing.lg,
     width: "100%",
     alignItems: "center",
   },
   button: {
     backgroundColor: "transparent",
-    padding: 10,
+    padding: Theme.spacing.sm,
   },
   imageContainer: {
     height: "95%",
@@ -284,66 +357,75 @@ const styles = StyleSheet.create({
   },
   descriptionContainer: {
     flex: 0.3,
-    backgroundColor: "white",
-    padding: 16,
+    backgroundColor: Theme.colors.surface,
+    padding: Theme.spacing.md,
     borderTopWidth: 1,
-    borderTopColor: "#ddd",
+    borderTopColor: Theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
+    ...Theme.shadow.sm,
+    shadowOffset: { width: 0, height: -2 }, // sombra hacia arriba
   },
   lottieContainer: {
     alignItems: "center",
     justifyContent: "center",
   },
   confirmText: {
-    marginTop: 12,
-    fontSize: 16,
-    fontWeight: "500",
+    marginTop: Theme.spacing.md,
+    fontSize: Theme.typography.base,
+    fontWeight: Theme.typography.medium,
     textAlign: "center",
-    color: "#333",
+    color: Theme.colors.textPrimary,
+  },
+  analyzingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Theme.spacing.sm,
   },
   loadingText: {
-    fontSize: 16,
-    color: "#666",
+    fontSize: Theme.typography.base,
+    color: Theme.colors.textSecondary,
   },
   btnContainer: {
     flexDirection: "row",
     justifyContent: "space-evenly",
-    backgroundColor: "white",
+    backgroundColor: Theme.colors.surface,
+    paddingVertical: Theme.spacing.sm,
   },
   btn: {
     justifyContent: "center",
-    margin: 10,
+    margin: Theme.spacing.sm,
     elevation: 5,
   },
   sessionInfoContainer: {
+    // Offsets propios del posicionamiento absoluto sobre la cámara
     position: "absolute",
     top: 50,
     right: 16,
     alignItems: "flex-end",
   },
   imageCounterText: {
-    color: "white",
-    fontSize: 14,
-    fontWeight: "bold",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    color: Theme.colors.textOnPrimary,
+    fontSize: Theme.typography.sm,
+    fontWeight: Theme.typography.bold,
+    backgroundColor: Theme.colors.overlay,
+    paddingHorizontal: Theme.spacing.sm,
+    paddingVertical: Theme.spacing.xs,
+    borderRadius: Theme.radius.full,
     overflow: "hidden",
   },
   clearImagesButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    marginTop: Theme.spacing.sm,
+    backgroundColor: Theme.colors.overlay,
+    paddingHorizontal: Theme.spacing.sm,
+    paddingVertical: Theme.spacing.xs,
+    borderRadius: Theme.radius.full,
   },
   clearImagesText: {
-    color: "white",
-    fontSize: 13,
-    marginLeft: 4,
+    color: Theme.colors.textOnPrimary,
+    fontSize: Theme.typography.sm,
+    marginLeft: Theme.spacing.xs,
   },
 });

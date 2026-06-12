@@ -2,6 +2,10 @@ import { OPENAI_API_KEY } from "../config/env";
 
 const MAX_ATTEMPTS = 2; // 1 intento + 1 reintento automático
 
+// Valor centinela: los llamadores deben compararlo para distinguir un fallo
+// de transcripción de un texto real del usuario (nunca enviarlo a Gemini).
+export const TRANSCRIPTION_FAILED = "__TRANSCRIPTION_FAILED__";
+
 export async function transcribeAudioWithWhisper(
   uri: string,
   language: string = "es"
@@ -12,7 +16,9 @@ export async function transcribeAudioWithWhisper(
       formData.append("file", {
         uri,
         name: "audio.wav",
-        type: "audio/wav",
+        // La grabación es AAC/m4a (ver recordingOptions.ts); Whisper detecta
+        // el formato por el contenido, no por el nombre del archivo.
+        type: "audio/mp4",
       } as any);
 
       formData.append("model", "whisper-1");
@@ -36,10 +42,10 @@ export async function transcribeAudioWithWhisper(
     } catch (error: any) {
       console.error(`Error en Whisper (intento ${attempt}/${MAX_ATTEMPTS}):`, error);
       if (attempt === MAX_ATTEMPTS) {
-        return "No se pudo transcribir el audio.";
+        return TRANSCRIPTION_FAILED;
       }
     }
   }
 
-  return "No se pudo transcribir el audio.";
+  return TRANSCRIPTION_FAILED;
 }

@@ -8,6 +8,10 @@ const MAX_IMAGES = 3;
 
 let images: string[] = [];
 
+// Descripción generada durante la captura (CameraFunction) que la pantalla de
+// chat consume para no repetir la llamada inicial a Gemini.
+let pendingDescription: string | null = null;
+
 export const ImageStore = {
   MAX_IMAGES,
 
@@ -31,9 +35,26 @@ export const ImageStore = {
   // sin perder el resto de la sesión.
   removeLatest() {
     images = images.slice(0, -1);
+    pendingDescription = null;
   },
 
   clear() {
     images = [];
+    pendingDescription = null;
+  },
+
+  setPendingDescription(description: string) {
+    pendingDescription = description;
+  },
+
+  // Consumo único: devuelve la descripción y la invalida de inmediato.
+  consumePendingDescription(): string | null {
+    const description = pendingDescription;
+    pendingDescription = null;
+    return description;
+  },
+
+  hasPendingDescription(): boolean {
+    return pendingDescription !== null;
   },
 };
