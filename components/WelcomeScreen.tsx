@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import * as Speech from "expo-speech";
 import LottieView from "lottie-react-native";
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 
 export default function WelcomeScreen() {

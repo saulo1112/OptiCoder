@@ -1,10 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Audio } from "expo-av";
+import {
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorder,
+} from "expo-audio";
 import { Camera, CameraCapturedPicture, CameraView } from "expo-camera";
-import { CameraType } from "expo-camera/build/Camera.types";
 import * as MediaLibrary from "expo-media-library";
 import { router, useLocalSearchParams } from "expo-router";
-import * as Speech from "expo-speech";
 import LottieView from "lottie-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -17,7 +20,8 @@ import {
 } from "react-native";
 import { analyzeImageWithGemini } from "../../services/GeminiService";
 import { ImageStore } from "../../services/ImageStore";
-import * as SpeechRecognition from "../../services/transcribeAudioWithWhisper";
+import { TTSService } from "../../services/TTSService";
+import { transcribeAudioWithWhisper } from "../../services/transcribeAudioWithWhisper";
 import Header from "../Header";
 
 export default function CameraFunction() {
@@ -27,22 +31,25 @@ export default function CameraFunction() {
   const [currentProject, setCurrentProject] = useState("Proyecto 1");
   const [cameraPermission, setCameraPermission] = useState<boolean | undefined>();
   const [mediaLibraryPermission, setMediaLibraryPermission] = useState<boolean | undefined>();
-  const [facing, setFacing] = useState<CameraType>("back");
+  const [facing] = useState<"front" | "back">("back");
   const [photo, setPhoto] = useState<CameraCapturedPicture | undefined>(undefined);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  // Bloquea el botón de captura mientras una captura anterior sigue en proceso
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [showLottie, setShowLottie] = useState<boolean>(false);
   const [buttonsVisible, setButtonsVisible] = useState(true);
   const [cameraKey, setCameraKey] = useState(0);
+  const [imageCount, setImageCount] = useState(ImageStore.getImages().length);
 
   const cameraRef = useRef<CameraView>(null);
   const lottieRef = useRef<LottieView>(null);
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
   useEffect(() => {
     (async () => {
       const camPerm = await Camera.requestCameraPermissionsAsync();
       const libPerm = await MediaLibrary.requestPermissionsAsync();
-      const micPerm = await Audio.requestPermissionsAsync();
+      const micPerm = await AudioModule.requestRecordingPermissionsAsync();
 
       setCameraPermission(camPerm.status === "granted");
       setMediaLibraryPermission(libPerm.status === "granted");
@@ -60,34 +67,37 @@ export default function CameraFunction() {
   }
 
   const takePic = async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || isProcessing) return;
 
-    const options = { quality: 1, base64: true, exif: false };
-    const newPhoto = await cameraRef.current.takePictureAsync(options);
-    setPhoto(newPhoto);
-    setButtonsVisible(false);
-
+    setIsProcessing(true);
     try {
+      const options = { quality: 1, base64: true, exif: false };
+      const newPhoto = await cameraRef.current.takePictureAsync(options);
+      setPhoto(newPhoto);
+      setButtonsVisible(false);
+
       setIsAnalyzing(true);
       setShowLottie(false);
 
       if (newPhoto.base64) {
-        ImageStore.setBase64(newPhoto.base64);
+        ImageStore.addImage(newPhoto.base64);
+        setImageCount(ImageStore.getImages().length);
 
         const shortPrompt = "Describe brevemente el contenido visible en esta imagen de código o interfaz.";
         await analyzeImageWithGemini(newPhoto.base64, shortPrompt);
 
         setShowLottie(true);
-        Speech.speak("Imagen procesada correctamente. Di 'sí' para continuar al análisis detallado.", {
-          language: voiceLang,
-          onDone: () => {
+        TTSService.speak(
+          "Imagen procesada correctamente. Di 'sí' para continuar al análisis detallado.",
+          voiceLang,
+          () => {
             setTimeout(() => {
               handleVoiceConfirmation();
             }, 500);
-          },
-        });
+          }
+        );
       } else {
-        Speech.speak("No se pudo capturar imagen en formato base64.", { language: voiceLang });
+        TTSService.speak("No se pudo capturar imagen en formato base64.", voiceLang);
         setButtonsVisible(true);
       }
     } catch (error: any) {
@@ -95,10 +105,11 @@ export default function CameraFunction() {
 
       const message = error?.message ?? "Fallo en el análisis de la imagen, intenta nuevamente.";
 
-      Speech.speak(message, { language: voiceLang });
+      TTSService.speak(message, voiceLang);
       setButtonsVisible(true);
     } finally {
       setIsAnalyzing(false);
+      setIsProcessing(false);
     }
   };
 
@@ -116,26 +127,24 @@ export default function CameraFunction() {
 
   const listenForYes = async (): Promise<string> => {
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await recording.startAsync();
-      recordingRef.current = recording;
+      await recorder.prepareToRecordAsync();
+      recorder.record();
 
       console.log("🎤 Grabando...");
 
       await new Promise(resolve => setTimeout(resolve, 6000));
 
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      await recorder.stop();
+      const uri = recorder.uri;
       console.log("📁 Audio grabado en:", uri);
 
       if (uri) {
-        const result = await SpeechRecognition.transcribeAudioWithWhisper(uri);
+        const result = await transcribeAudioWithWhisper(uri, selectedLanguage);
         return result || "";
       }
       return "";
@@ -153,11 +162,18 @@ export default function CameraFunction() {
   };
 
   const discardPhoto = () => {
-    Speech.stop();
+    TTSService.stop();
     setPhoto(undefined);
     setShowLottie(false);
     setButtonsVisible(false);
+    // Sólo descarta la foto recién tomada; conserva las demás de la sesión
+    ImageStore.removeLatest();
+    setImageCount(ImageStore.getImages().length);
+  };
+
+  const clearImages = () => {
     ImageStore.clear();
+    setImageCount(0);
   };
 
   const showHeader = false;
@@ -212,9 +228,33 @@ export default function CameraFunction() {
           ref={cameraRef}
         />
       )}
+      <View style={styles.sessionInfoContainer}>
+        <Text style={styles.imageCounterText}>
+          {imageCount}/{ImageStore.MAX_IMAGES} imágenes
+        </Text>
+        {imageCount > 0 && (
+          <TouchableOpacity
+            style={styles.clearImagesButton}
+            onPress={clearImages}
+            accessibilityLabel="Borrar todas las imágenes de la sesión"
+          >
+            <Ionicons name="trash-bin-outline" size={16} color="white" />
+            <Text style={styles.clearImagesText}>Limpiar</Text>
+          </TouchableOpacity>
+        )}
+      </View>
       <View style={styles.shutterContainer}>
-        <TouchableOpacity style={styles.button} onPress={takePic}>
-          <Ionicons name="aperture-outline" size={100} color="white" />
+        <TouchableOpacity
+          style={styles.button}
+          onPress={takePic}
+          disabled={isProcessing}
+          accessibilityLabel="Tomar foto"
+        >
+          <Ionicons
+            name="aperture-outline"
+            size={100}
+            color={isProcessing ? "gray" : "white"}
+          />
         </TouchableOpacity>
       </View>
     </View>
@@ -275,5 +315,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     margin: 10,
     elevation: 5,
+  },
+  sessionInfoContainer: {
+    position: "absolute",
+    top: 50,
+    right: 16,
+    alignItems: "flex-end",
+  },
+  imageCounterText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "bold",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  clearImagesButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  clearImagesText: {
+    color: "white",
+    fontSize: 13,
+    marginLeft: 4,
   },
 });

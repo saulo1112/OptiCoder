@@ -1,10 +1,16 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Audio } from "expo-av";
+import {
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorder,
+} from "expo-audio";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Speech from "expo-speech";
-import React, { useEffect, useState } from "react";
+import LottieView from "lottie-react-native";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,10 +19,10 @@ import {
   View,
 } from "react-native";
 
-import LottieView from "lottie-react-native";
 import VoiceVisualizer from "../components/VoiceVisualizer";
 import { analyzeImageWithGemini } from "../services/GeminiService";
 import { ImageStore } from "../services/ImageStore";
+import { TTSService } from "../services/TTSService";
 import { transcribeAudioWithWhisper } from "../services/transcribeAudioWithWhisper";
 
 type ChatTurn = {
@@ -30,111 +36,233 @@ export default function ImageChatScreen() {
     useLocalSearchParams<{ selectedLanguage?: string }>();
   const voiceLang = selectedLanguage === "es" ? "es-ES" : "en-US";
 
-  const imageBase64 = ImageStore.getBase64() ?? "";
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [lastSpokenIndex, setLastSpokenIndex] = useState<number>(-1); // lo dejamos aunque ya no lo usemos
+  // Bloquea acciones concurrentes (doble tap, grabar mientras se procesa, etc.)
+  const [isProcessing, setIsProcessing] = useState(false);
+  // Indica que la escucha se activó automáticamente al terminar el TTS
+  const [isAutoListening, setIsAutoListening] = useState(false);
+
+  // Refs espejo: los callbacks asíncronos (onDone del TTS) leen el valor
+  // actual y no el del cierre en que se crearon.
+  const isMountedRef = useRef(true);
+  const isProcessingRef = useRef(false);
+  const isRecordingRef = useRef(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  const setProcessing = (value: boolean) => {
+    isProcessingRef.current = value;
+    if (isMountedRef.current) setIsProcessing(value);
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      TTSService.stop();
+    };
+  }, []);
 
   // === PROMPT INICIAL ===
   useEffect(() => {
     const runInitialPrompt = async () => {
+      setProcessing(true);
+      setIsLoading(true);
       try {
-        setIsLoading(true);
         const initialPrompt = `Actúa como un asistente experto en desarrollo móvil. Observa la imagen proporcionada y ofrece una descripción breve. Luego, formula una pregunta amable que motive al usuario a continuar la conversación.`;
 
-        const response = await analyzeImageWithGemini(imageBase64, initialPrompt);
+        const response = await analyzeImageWithGemini(
+          ImageStore.getImages(),
+          initialPrompt
+        );
         const assistantText = `${response} ¿Sobre qué parte de este proyecto deseas saber más?`;
 
         // Sólo guardamos el mensaje del modelo; el audio lo maneja el otro useEffect
-        setMessages([{ role: "model", content: assistantText }]);
+        if (isMountedRef.current) {
+          setMessages([{ role: "model", content: assistantText }]);
+        }
       } catch (err) {
+        console.error("Error en el prompt inicial:", err);
         const fallback = "No se pudo procesar la imagen. Intenta nuevamente.";
-        setMessages([{ role: "model", content: fallback }]);
+        if (isMountedRef.current) {
+          setMessages([{ role: "model", content: fallback }]);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMountedRef.current) setIsLoading(false);
+        setProcessing(false);
       }
     };
 
     runInitialPrompt();
   }, []);
 
-  // === TTS: lee SIEMPRE el último mensaje del modelo ===
+  // === TTS: lee SIEMPRE el último mensaje del modelo y luego activa la escucha ===
   useEffect(() => {
     if (!messages.length) return;
 
     const last = messages[messages.length - 1];
     if (last.role !== "model" || !last.content?.trim()) return;
 
-    console.log("[TTS] hablando último mensaje de modelo:", last.content.slice(0, 80));
-    Speech.stop(); // por si quedaba algo anterior
     setIsSpeaking(true);
 
-    Speech.speak(last.content, {
-      language: voiceLang,
-      onDone: () => setIsSpeaking(false),
-      onStopped: () => setIsSpeaking(false),
-      onError: (e) => {
-        console.log("[TTS] error en image-chat-screen:", e);
-        setIsSpeaking(false);
-      },
+    TTSService.speak(last.content, voiceLang, () => {
+      if (!isMountedRef.current) return;
+      setIsSpeaking(false);
+      // Manos libres: al terminar de hablar el asistente, empieza a escuchar
+      if (!isProcessingRef.current && !isRecordingRef.current) {
+        startRecording(true);
+      }
     });
+    // startRecording se omite a propósito: lee refs, no estado del cierre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, voiceLang]);
 
-  const startRecording = async () => {
-    if (isRecording) return;
-    const { granted } = await Audio.requestPermissionsAsync();
-    if (!granted) {
-      Alert.alert("Permiso requerido", "Se necesita acceso al micrófono.");
-      return;
+  // === Auto-scroll al final cada vez que cambian los mensajes ===
+  useEffect(() => {
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [messages]);
+
+  // === Pulso animado del micrófono cuando la escucha es automática ===
+  useEffect(() => {
+    if (isAutoListening) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.25,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
     }
+    pulseAnim.setValue(1);
+  }, [isAutoListening, pulseAnim]);
 
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-    });
+  const startRecording = async (auto: boolean = false) => {
+    if (isRecordingRef.current || isProcessingRef.current) return;
 
-    const { recording } = await Audio.Recording.createAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY
-    );
-    setRecording(recording);
-    setIsRecording(true);
+    setProcessing(true);
+    try {
+      const { granted } = await AudioModule.requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert("Permiso requerido", "Se necesita acceso al micrófono.");
+        return;
+      }
+
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+
+      isRecordingRef.current = true;
+      if (isMountedRef.current) {
+        setIsRecording(true);
+        setIsAutoListening(auto);
+      }
+    } catch (err) {
+      console.error("Error al iniciar la grabación:", err);
+      if (isMountedRef.current) {
+        Alert.alert("Error", "No se pudo iniciar la grabación de voz.");
+      }
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
+    if (!isRecordingRef.current) return;
 
-    await recording.stopAndUnloadAsync();
-    const uri = recording.getURI();
-    setIsRecording(false);
-    setRecording(null);
+    setProcessing(true);
+    isRecordingRef.current = false;
+    if (isMountedRef.current) {
+      setIsRecording(false);
+      setIsAutoListening(false);
+    }
 
-    if (uri) {
-      const userText = await transcribeAudioWithWhisper(uri);
+    try {
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (!uri) return;
+
+      if (isMountedRef.current) setIsLoading(true);
+
+      const userText = await transcribeAudioWithWhisper(uri, selectedLanguage);
       const userTurn: ChatTurn = { role: "user", content: userText };
 
-      setIsLoading(true);
-      const response = await analyzeImageWithGemini(imageBase64, userText);
-      setIsLoading(false);
-
+      const response = await analyzeImageWithGemini(
+        ImageStore.getImages(),
+        userText,
+        messages
+      );
       const assistantTurn: ChatTurn = { role: "model", content: response };
+
       // Sólo actualizamos mensajes; el useEffect de arriba se encargará de hablar
-      setMessages((prev) => [...prev, userTurn, assistantTurn]);
+      if (isMountedRef.current) {
+        setMessages((prev) => [...prev, userTurn, assistantTurn]);
+      }
+    } catch (err) {
+      console.error("Error al procesar la grabación:", err);
+      if (isMountedRef.current) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "model",
+            content: "Ocurrió un error al procesar tu voz. Intenta nuevamente.",
+          },
+        ]);
+      }
+    } finally {
+      if (isMountedRef.current) setIsLoading(false);
+      setProcessing(false);
     }
   };
 
   const handleMicPress = () => {
-    isRecording ? stopRecording() : startRecording();
+    if (isProcessingRef.current) return;
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const handleRepeatLast = () => {
+    const lastModel = [...messages].reverse().find((m) => m.role === "model");
+    if (!lastModel || isSpeaking || isProcessing) return;
+
+    setIsSpeaking(true);
+    TTSService.speak(lastModel.content, voiceLang, () => {
+      if (isMountedRef.current) setIsSpeaking(false);
+    });
   };
 
   const handleRetakePhoto = () => {
-    Speech.stop();
+    TTSService.stop();
     setIsSpeaking(false);
-    ImageStore.clear();
     router.push("/camera");
   };
+
+  const lastModelIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "model") return i;
+    }
+    return -1;
+  })();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -168,7 +296,7 @@ export default function ImageChatScreen() {
         <VoiceVisualizer isActive={isRecording} />
       </View>
 
-      <ScrollView style={styles.chatBox}>
+      <ScrollView style={styles.chatBox} ref={scrollViewRef}>
         {messages.map((msg, index) => (
           <View
             key={index}
@@ -181,19 +309,46 @@ export default function ImageChatScreen() {
               {msg.role === "user" ? "🎙️ " : "🤖 "}
               {msg.content}
             </Text>
+            {index === lastModelIndex && (
+              <TouchableOpacity
+                style={styles.repeatButton}
+                onPress={handleRepeatLast}
+                disabled={isSpeaking || isProcessing}
+                accessibilityLabel="Repetir última respuesta"
+              >
+                <Ionicons
+                  name="repeat"
+                  size={18}
+                  color={isSpeaking || isProcessing ? "#aaa" : "#6200ee"}
+                />
+              </TouchableOpacity>
+            )}
           </View>
         ))}
       </ScrollView>
 
       <View style={styles.controls}>
-        <TouchableOpacity style={styles.micButton} onPress={handleMicPress}>
-          <Ionicons name={isRecording ? "stop" : "mic-outline"} size={36} color="white" />
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <TouchableOpacity
+            style={[styles.micButton, isProcessing && styles.micButtonDisabled]}
+            onPress={handleMicPress}
+            disabled={isProcessing}
+            accessibilityLabel={
+              isRecording ? "Detener grabación" : "Iniciar grabación"
+            }
+          >
+            <Ionicons
+              name={isRecording ? "stop" : "mic-outline"}
+              size={36}
+              color="white"
+            />
+          </TouchableOpacity>
+        </Animated.View>
 
         <TouchableOpacity
           style={styles.skipButton}
           onPress={() => {
-            Speech.stop();
+            TTSService.stop();
             setIsSpeaking(false);
           }}
         >
@@ -284,6 +439,9 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     elevation: 4,
   },
+  micButtonDisabled: {
+    opacity: 0.5,
+  },
   skipButton: {
     marginLeft: 8,
     backgroundColor: "#ffcc00",
@@ -303,5 +461,10 @@ const styles = StyleSheet.create({
   retakeText: {
     color: "#000",
     fontWeight: "bold",
+  },
+  repeatButton: {
+    alignSelf: "flex-start",
+    marginTop: 6,
+    padding: 4,
   },
 });
