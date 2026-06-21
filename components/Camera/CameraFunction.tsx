@@ -187,11 +187,11 @@ export default function CameraFunction() {
           <View style={styles.btnContainer}>
             {mediaLibraryPermission && (
               <TouchableOpacity style={styles.btn} onPress={savePhoto}>
-                <Ionicons name="save-outline" size={30} color="black" />
+                <Ionicons name="save-outline" size={30} color="#0057A4" />
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.btn} onPress={discardPhoto}>
-              <Ionicons name="trash-outline" size={30} color="black" />
+              <Ionicons name="trash-outline" size={30} color="#D32F2F" />
             </TouchableOpacity>
           </View>
         )}
@@ -213,8 +213,8 @@ export default function CameraFunction() {
         />
       )}
       <View style={styles.shutterContainer}>
-        <TouchableOpacity style={styles.button} onPress={takePic}>
-          <Ionicons name="aperture-outline" size={100} color="white" />
+        <TouchableOpacity style={styles.captureButtonOuter} onPress={takePic} activeOpacity={0.7}>
+          <View style={styles.captureButtonInner} />
         </TouchableOpacity>
       </View>
     </View>
@@ -230,9 +230,21 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-  button: {
-    backgroundColor: "transparent",
-    padding: 10,
+  captureButtonOuter: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 4,
+    borderColor: "#FFFFFF",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  captureButtonInner: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#FFFFFF",
   },
   imageContainer: {
     height: "95%",
@@ -246,10 +258,15 @@ const styles = StyleSheet.create({
     flex: 0.3,
     backgroundColor: "white",
     padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#ddd",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 6,
   },
   lottieContainer: {
     alignItems: "center",

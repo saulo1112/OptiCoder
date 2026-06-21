@@ -1,4 +1,4 @@
-package com.sau11_12.AuravizApp
+package com.sau11_12.opticoder
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

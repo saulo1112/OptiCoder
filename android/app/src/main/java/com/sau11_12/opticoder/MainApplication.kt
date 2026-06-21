@@ -1,4 +1,4 @@
-package com.sau11_12.AuravizApp
+package com.sau11_12.opticoder
 
 import android.app.Application
 import android.content.res.Configuration

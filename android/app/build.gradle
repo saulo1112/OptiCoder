@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.sau11_12.AuravizApp'
+    namespace 'com.sau11_12.opticoder'
     defaultConfig {
-        applicationId 'com.sau11_12.AuravizApp'
+        applicationId 'com.sau11_12.opticoder'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
