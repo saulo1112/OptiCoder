@@ -1,6 +1,6 @@
 import LottieView from "lottie-react-native";
-import React from "react";
 import { StyleSheet, View } from "react-native";
+import { Theme } from "../constants/Theme";
 
 export default function VoiceVisualizer({ isActive }: { isActive: boolean }) {
   return (
@@ -21,11 +21,11 @@ const styles = StyleSheet.create({
   container: {
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 10,
-    marginBottom: 20,
+    marginTop: Theme.spacing.sm,
+    marginBottom: Theme.spacing.md,
   },
   animation: {
-    width: 100,
-    height: 100,
+    width: 120,
+    height: 120,
   },
 });
