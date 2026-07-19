@@ -33,12 +33,12 @@ const SILENCE_THRESHOLD_DB = -40;
 const SILENCE_POLLS_TO_STOP = 3;
 
 export default function CameraFunction() {
-  const { selectedLanguage = "es" } = useLocalSearchParams<{
+  const { selectedLanguage = "en" } = useLocalSearchParams<{
     selectedLanguage: string;
   }>();
   const voiceLang = selectedLanguage === "es" ? "es-ES" : "en-US";
 
-  const [currentProject, setCurrentProject] = useState("Proyecto 1");
+  const [currentProject, setCurrentProject] = useState("Project 1");
   const [cameraPermission, setCameraPermission] = useState<
     boolean | undefined
   >();
@@ -81,9 +81,9 @@ export default function CameraFunction() {
   }, []);
 
   if (cameraPermission === undefined || mediaLibraryPermission === undefined) {
-    return <Text>Solicitando permisos...</Text>;
+    return <Text>Requesting permissions...</Text>;
   } else if (!cameraPermission) {
-    return <Text>No se concedió permiso para usar la cámara.</Text>;
+    return <Text>Camera permission was not granted.</Text>;
   }
 
   const takePic = async () => {
@@ -117,7 +117,7 @@ export default function CameraFunction() {
 
         setShowLottie(true);
         TTSService.speak(
-          "Imagen procesada correctamente. Di 'sí' para continuar al análisis detallado.",
+          "Image processed successfully. Say 'yes' to continue to the detailed analysis.",
           voiceLang,
           () => {
             setTimeout(() => {
@@ -127,7 +127,7 @@ export default function CameraFunction() {
         );
       } else {
         TTSService.speak(
-          "No se pudo capturar imagen en formato base64.",
+          "Could not capture image in base64 format.",
           voiceLang,
         );
         setButtonsVisible(true);
@@ -137,7 +137,7 @@ export default function CameraFunction() {
 
       const message =
         error?.message ??
-        "Fallo en el análisis de la imagen, intenta nuevamente.";
+        "Image analysis failed, please try again.";
 
       TTSService.speak(message, voiceLang);
       setButtonsVisible(true);
@@ -274,7 +274,7 @@ export default function CameraFunction() {
           {isAnalyzing ? (
             <View style={styles.analyzingRow}>
               <ActivityIndicator color={Theme.colors.primary} />
-              <Text style={styles.loadingText}>Analizando imagen...</Text>
+              <Text style={styles.loadingText}>Analyzing image...</Text>
             </View>
           ) : showLottie ? (
             <View style={styles.lottieContainer}>
@@ -286,7 +286,7 @@ export default function CameraFunction() {
                 style={{ width: 200, height: 200 }}
               />
               <Text style={styles.confirmText}>
-                Imagen procesada correctamente. Esperando confirmación...
+                Image processed successfully. Waiting for confirmation...
               </Text>
             </View>
           ) : null}
@@ -334,20 +334,20 @@ export default function CameraFunction() {
       )}
       <View style={styles.sessionInfoContainer}>
         <Text style={styles.imageCounterText}>
-          {imageCount}/{ImageStore.MAX_IMAGES} imágenes
+          {imageCount}/{ImageStore.MAX_IMAGES} images
         </Text>
         {imageCount > 0 && (
           <TouchableOpacity
             style={styles.clearImagesButton}
             onPress={clearImages}
-            accessibilityLabel="Borrar todas las imágenes de la sesión"
+            accessibilityLabel="Clear all images in this session"
           >
             <Ionicons
               name="trash-bin-outline"
               size={16}
               color={Theme.colors.textOnPrimary}
             />
-            <Text style={styles.clearImagesText}>Limpiar</Text>
+            <Text style={styles.clearImagesText}>Clear</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -357,7 +357,7 @@ export default function CameraFunction() {
           onPress={takePic}
           activeOpacity={0.7}
           disabled={isProcessing}
-          accessibilityLabel="Tomar foto"
+          accessibilityLabel="Take photo"
         >
           <View style={styles.captureButtonInner} />
         </TouchableOpacity>

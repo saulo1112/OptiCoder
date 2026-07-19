@@ -39,7 +39,7 @@ type ChatTurn = {
 
 export default function ImageChatScreen() {
   const router = useRouter();
-  const { selectedLanguage = "es" } =
+  const { selectedLanguage = "en" } =
     useLocalSearchParams<{ selectedLanguage?: string }>();
   const voiceLang = selectedLanguage === "es" ? "es-ES" : "en-US";
 
@@ -89,14 +89,14 @@ export default function ImageChatScreen() {
         if (cachedDescription && cachedDescription.trim()) {
           response = cachedDescription;
         } else {
-          const initialPrompt = `Actúa como un asistente experto en desarrollo móvil. Observa la imagen proporcionada y ofrece una descripción breve. Luego, formula una pregunta amable que motive al usuario a continuar la conversación.`;
+          const initialPrompt = `Act as an expert mobile development assistant. Observe the provided image and give a brief description. Then, ask a friendly question that encourages the user to continue the conversation.`;
 
           response = await analyzeImageWithGemini(
             ImageStore.getImages(),
             initialPrompt
           );
         }
-        const assistantText = `${response} ¿Sobre qué parte de este proyecto deseas saber más?`;
+        const assistantText = `${response} Which part of this project would you like to know more about?`;
 
         // Sólo guardamos el mensaje del modelo; el audio lo maneja el otro useEffect
         if (isMountedRef.current) {
@@ -104,7 +104,7 @@ export default function ImageChatScreen() {
         }
       } catch (err) {
         console.error("Error en el prompt inicial:", err);
-        const fallback = "No se pudo procesar la imagen. Intenta nuevamente.";
+        const fallback = "Could not process the image. Please try again.";
         if (isMountedRef.current) {
           setMessages([{ role: "model", content: fallback }]);
         }
@@ -173,7 +173,7 @@ export default function ImageChatScreen() {
     try {
       const { granted } = await AudioModule.requestRecordingPermissionsAsync();
       if (!granted) {
-        Alert.alert("Permiso requerido", "Se necesita acceso al micrófono.");
+        Alert.alert("Permission required", "Microphone access is needed.");
         return;
       }
 
@@ -193,7 +193,7 @@ export default function ImageChatScreen() {
     } catch (err) {
       console.error("Error al iniciar la grabación:", err);
       if (isMountedRef.current) {
-        Alert.alert("Error", "No se pudo iniciar la grabación de voz.");
+        Alert.alert("Error", "Could not start voice recording.");
       }
     } finally {
       setProcessing(false);
@@ -235,7 +235,7 @@ export default function ImageChatScreen() {
       // una pregunta real; avisar por voz y dejar que el usuario reintente.
       if (userText === TRANSCRIPTION_FAILED) {
         TTSService.speak(
-          "No pude escucharte. Por favor, intenta de nuevo.",
+          "I couldn't hear you. Please try again.",
           voiceLang,
           () => {
             if (isMountedRef.current && !isProcessingRef.current) startRecording(true);
@@ -264,7 +264,7 @@ export default function ImageChatScreen() {
           ...prev,
           {
             role: "model",
-            content: "Ocurrió un error al procesar tu voz. Intenta nuevamente.",
+            content: "An error occurred while processing your voice. Please try again.",
           },
         ]);
       }
@@ -307,11 +307,11 @@ export default function ImageChatScreen() {
   })();
 
   const statusLabelText = isLoading
-    ? "Analizando imagen..."
+    ? "Analyzing image..."
     : isSpeaking
-    ? "OptiCoder está respondiendo"
+    ? "OptiCoder is responding"
     : isRecording
-    ? "Escuchando..."
+    ? "Listening..."
     : "";
 
   return (
@@ -359,7 +359,7 @@ export default function ImageChatScreen() {
               color={Theme.colors.textDisabled}
             />
             <Text style={styles.emptyStateText}>
-              La descripción de la imagen aparecerá aquí
+              The image description will appear here
             </Text>
           </View>
         )}
@@ -386,7 +386,7 @@ export default function ImageChatScreen() {
                 style={styles.repeatButton}
                 onPress={handleRepeatLast}
                 disabled={isSpeaking || isProcessing}
-                accessibilityLabel="Repetir última respuesta"
+                accessibilityLabel="Repeat last response"
               >
                 <Ionicons
                   name="repeat"
@@ -414,7 +414,7 @@ export default function ImageChatScreen() {
             onPress={handleMicPress}
             disabled={isProcessing}
             accessibilityLabel={
-              isRecording ? "Detener grabación" : "Iniciar grabación"
+              isRecording ? "Stop recording" : "Start recording"
             }
           >
             <Ionicons
@@ -441,7 +441,7 @@ export default function ImageChatScreen() {
 
         <TouchableOpacity style={styles.retakeButton} onPress={handleRetakePhoto}>
           <Ionicons name="camera-outline" size={22} color={Theme.colors.primary} />
-          <Text style={styles.retakeText}>Nueva foto</Text>
+          <Text style={styles.retakeText}>New photo</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

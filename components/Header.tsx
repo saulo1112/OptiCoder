@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Theme } from '../constants/Theme';
 
-const dummyProjects = ['Proyecto 1', 'Proyecto 2', 'Proyecto 3'];
+const dummyProjects = ['Project 1', 'Project 2', 'Project 3'];
 
 export default function Header({
   currentProject,

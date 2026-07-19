@@ -8,7 +8,7 @@ import { Theme } from "../constants/Theme";
 export default function WelcomeScreen() {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const welcomeText = "Bienvenido a OptiCoder. Por favor toma una foto inicial de tu proyecto.";
+  const welcomeText = "Welcome to OptiCoder. Please take an initial photo of your project.";
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -18,7 +18,7 @@ export default function WelcomeScreen() {
     }).start();
 
     Speech.speak(welcomeText, {
-      language: "es-ES",
+      language: "en-US",
       onDone: () => {
         router.push("/camera");  // Navigate to the camera screen after speech is done
       },

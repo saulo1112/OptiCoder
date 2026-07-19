@@ -26,7 +26,7 @@ Follow these rules strictly:
 4. If the user asks a follow-up question, answer it directly and concisely in no more than 2 sentences.
 5. Do not add unsolicited suggestions, warnings, or commentary beyond what was asked.
 6. If the image is not code (e.g. a UI mockup or architecture diagram), describe its purpose and main elements briefly in 2 sentences maximum.
-7. Respond in the same language the user writes or speaks in. Default to Spanish.`;
+7. Respond in the same language the user writes or speaks in. Default to English.`;
 
   try {
     // Compatibilidad hacia atrás: acepta una sola imagen (string) o varias (string[]).
@@ -36,7 +36,7 @@ Follow these rules strictly:
       imageList.length === 0 ||
       imageList.some((img) => !img || img.length < 100)
     ) {
-      throw new Error("La imagen base64 es inválida o está vacía.");
+      throw new Error("The base64 image is invalid or empty.");
     }
 
     const contents: any[] = [];
@@ -93,7 +93,7 @@ Follow these rules strictly:
       console.error("Gemini API error body:", data);
       throw new Error(
         (data as any)?.error?.message ||
-          `Fallo en el análisis de la imagen. Código ${response.status}.`
+          `Image analysis failed. Code ${response.status}.`
       );
     }
 
@@ -101,9 +101,9 @@ Follow these rules strictly:
       (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text ??
       (data as any)?.candidates?.[0]?.output_text;
 
-    return output || "No se encontró una descripción.";
+    return output || "No description was found.";
   } catch (error: any) {
     console.error("Gemini API error (catch):", error);
-    throw new Error(error?.message || "Fallo en el análisis de la imagen.");
+    throw new Error(error?.message || "Image analysis failed.");
   }
 }

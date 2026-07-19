@@ -8,7 +8,7 @@ export const TRANSCRIPTION_FAILED = "__TRANSCRIPTION_FAILED__";
 
 export async function transcribeAudioWithWhisper(
   uri: string,
-  language: string = "es"
+  language: string = "en"
 ): Promise<string> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
