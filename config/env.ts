@@ -5,9 +5,9 @@
 function requireEnvVar(value: string | undefined, name: string): string {
   if (!value || !value.trim()) {
     throw new Error(
-      `Falta la variable de entorno "${name}". ` +
-        `Crea un archivo .env en la raíz del proyecto (usa .env.example como plantilla), ` +
-        `define ${name} y reinicia el servidor de Expo.`
+      `Missing environment variable "${name}". ` +
+        `Create a .env file in the project root (use .env.example as a template), ` +
+        `define ${name}, and restart the Expo server.`
     );
   }
   return value.trim();
