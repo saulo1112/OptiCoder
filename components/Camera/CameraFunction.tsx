@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { Theme } from "../../constants/Theme";
-import { analyzeImageWithGemini } from "../../services/GeminiService";
+import { analyzeImage } from "../../services/VisionService";
 import { ImageStore } from "../../services/ImageStore";
 import { VOICE_COMMAND_RECORDING_OPTIONS } from "../../services/recordingOptions";
 import {
@@ -107,7 +107,7 @@ export default function CameraFunction() {
 
         const shortPrompt =
           "You are an expert software development assistant. Observe this image and provide a brief but clear description of what you see. End your response with a natural, open-ended question that invites the user to ask more about what they see.";
-        const description = await analyzeImageWithGemini(
+        const description = await analyzeImage(
           newPhoto.base64,
           shortPrompt,
         );

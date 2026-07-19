@@ -20,7 +20,7 @@ import {
 
 import VoiceVisualizer from "../components/VoiceVisualizer";
 import { Theme } from "../constants/Theme";
-import { analyzeImageWithGemini } from "../services/GeminiService";
+import { analyzeImage } from "../services/VisionService";
 import { ImageStore } from "../services/ImageStore";
 import {
   VOICE_COMMAND_RECORDING_OPTIONS,
@@ -91,7 +91,7 @@ export default function ImageChatScreen() {
         } else {
           const initialPrompt = `Act as an expert mobile development assistant. Observe the provided image and give a brief description. Then, ask a friendly question that encourages the user to continue the conversation.`;
 
-          response = await analyzeImageWithGemini(
+          response = await analyzeImage(
             ImageStore.getImages(),
             initialPrompt
           );
@@ -246,7 +246,7 @@ export default function ImageChatScreen() {
 
       const userTurn: ChatTurn = { role: "user", content: userText };
 
-      const response = await analyzeImageWithGemini(
+      const response = await analyzeImage(
         ImageStore.getImages(),
         userText,
         messages

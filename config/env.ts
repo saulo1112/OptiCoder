@@ -22,3 +22,12 @@ export const OPENAI_API_KEY = requireEnvVar(
   process.env.EXPO_PUBLIC_OPENAI_API_KEY,
   "EXPO_PUBLIC_OPENAI_API_KEY"
 );
+
+// Proveedor de visión activo para analyzeImage() (ver services/VisionService.ts).
+// "gemini" (por defecto) o "openai". Es opcional: si no se define, se usa Gemini.
+// Sirve para usar la visión de OpenAI cuando la API de Gemini no está disponible.
+export const AI_PROVIDER = (
+  process.env.EXPO_PUBLIC_AI_PROVIDER ?? "gemini"
+)
+  .trim()
+  .toLowerCase();
