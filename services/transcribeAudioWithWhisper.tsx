@@ -28,7 +28,8 @@ export async function transcribeAudioWithWhisper(
         method: "POST",
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "multipart/form-data",
+          // No fijar Content-Type manualmente: fetch/FormData necesitan generar
+          // el boundary automáticamente, o la API rechaza el multipart.
         },
         body: formData,
       });

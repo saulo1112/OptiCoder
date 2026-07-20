@@ -117,7 +117,7 @@ export default function ImageChatScreen() {
     runInitialPrompt();
   }, []);
 
-  // === TTS: lee SIEMPRE el último mensaje del modelo y luego activa la escucha ===
+  // === TTS: lee SIEMPRE el último mensaje del modelo (sin activar el micro) ===
   useEffect(() => {
     if (!messages.length) return;
 
@@ -129,13 +129,8 @@ export default function ImageChatScreen() {
     TTSService.speak(last.content, voiceLang, () => {
       if (!isMountedRef.current) return;
       setIsSpeaking(false);
-      // Manos libres: al terminar de hablar el asistente, empieza a escuchar
-      if (!isProcessingRef.current && !isRecordingRef.current) {
-        startRecording(true);
-      }
+      // El usuario pulsa el micro manualmente cuando quiera responder.
     });
-    // startRecording se omite a propósito: lee refs, no estado del cierre.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, voiceLang]);
 
   // === Auto-scroll al final cada vez que cambian los mensajes ===

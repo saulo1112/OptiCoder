@@ -116,6 +116,9 @@ export default function CameraFunction() {
         ImageStore.setPendingDescription(description);
 
         setShowLottie(true);
+        // Botones visibles desde ya: si la voz falla o el usuario prefiere no
+        // usarla, puede pulsar "Continuar" en vez de quedar atascado.
+        setButtonsVisible(true);
         TTSService.speak(
           "Image processed successfully. Say 'yes' to continue to the detailed analysis.",
           voiceLang,
@@ -242,6 +245,14 @@ export default function CameraFunction() {
     }
   };
 
+  const continueToChat = () => {
+    TTSService.stop();
+    router.push({
+      pathname: "/image-chat-screen",
+      params: { selectedLanguage },
+    });
+  };
+
   const savePhoto = () => {
     if (!photo) return;
     MediaLibrary.saveToLibraryAsync(photo.uri).then(() => {
@@ -294,6 +305,19 @@ export default function CameraFunction() {
 
         {buttonsVisible && (
           <View style={styles.btnContainer}>
+            {showLottie && (
+              <TouchableOpacity
+                style={styles.btn}
+                onPress={continueToChat}
+                accessibilityLabel="Continue to chat"
+              >
+                <Ionicons
+                  name="arrow-forward-outline"
+                  size={30}
+                  color={Theme.colors.textPrimary}
+                />
+              </TouchableOpacity>
+            )}
             {mediaLibraryPermission && (
               <TouchableOpacity style={styles.btn} onPress={savePhoto}>
                 <Ionicons
