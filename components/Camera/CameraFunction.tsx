@@ -8,12 +8,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Theme } from "../../constants/Theme";
 import { analyzeImage } from "../../services/VisionService";
 import { ImageStore } from "../../services/ImageStore";
@@ -37,6 +37,7 @@ export default function CameraFunction() {
     selectedLanguage: string;
   }>();
   const voiceLang = selectedLanguage === "es" ? "es-ES" : "en-US";
+  const insets = useSafeAreaInsets();
 
   const [currentProject, setCurrentProject] = useState("Project 1");
   const [cameraPermission, setCameraPermission] = useState<
@@ -55,7 +56,6 @@ export default function CameraFunction() {
   const [showLottie, setShowLottie] = useState<boolean>(false);
   const [buttonsVisible, setButtonsVisible] = useState(true);
   const [cameraKey, setCameraKey] = useState(0);
-  const [imageCount, setImageCount] = useState(ImageStore.getImages().length);
 
   const cameraRef = useRef<CameraView>(null);
   const lottieRef = useRef<LottieView>(null);
@@ -103,7 +103,6 @@ export default function CameraFunction() {
 
       if (newPhoto.base64) {
         ImageStore.addImage(newPhoto.base64);
-        setImageCount(ImageStore.getImages().length);
 
         const shortPrompt =
           "You are an expert software development assistant. Observe this image and provide a brief but clear description of what you see. End your response with a natural, open-ended question that invites the user to ask more about what they see.";
@@ -116,13 +115,13 @@ export default function CameraFunction() {
         ImageStore.setPendingDescription(description);
 
         setShowLottie(true);
-        // Botones visibles desde ya: si la voz falla o el usuario prefiere no
-        // usarla, puede pulsar "Continuar" en vez de quedar atascado.
-        setButtonsVisible(true);
         TTSService.speak(
           "Image processed successfully. Say 'yes' to continue to the detailed analysis.",
           voiceLang,
           () => {
+            // Los botones (incl. "Continuar") aparecen junto con la escucha,
+            // no antes: así el usuario ve primero la opción de decir "yes".
+            setButtonsVisible(true);
             setTimeout(() => {
               handleVoiceConfirmation();
             }, 500);
@@ -267,12 +266,6 @@ export default function CameraFunction() {
     setButtonsVisible(false);
     // Sólo descarta la foto recién tomada; conserva las demás de la sesión
     ImageStore.removeLatest();
-    setImageCount(ImageStore.getImages().length);
-  };
-
-  const clearImages = () => {
-    ImageStore.clear();
-    setImageCount(0);
   };
 
   const showHeader = false;
@@ -294,7 +287,7 @@ export default function CameraFunction() {
                 source={require("../../assets/animations/image-processed.json")}
                 autoPlay
                 loop
-                style={{ width: 200, height: 200 }}
+                style={{ width: 140, height: 140 }}
               />
               <Text style={styles.confirmText}>
                 Image processed successfully. Waiting for confirmation...
@@ -356,26 +349,12 @@ export default function CameraFunction() {
           ref={cameraRef}
         />
       )}
-      <View style={styles.sessionInfoContainer}>
-        <Text style={styles.imageCounterText}>
-          {imageCount}/{ImageStore.MAX_IMAGES} images
-        </Text>
-        {imageCount > 0 && (
-          <TouchableOpacity
-            style={styles.clearImagesButton}
-            onPress={clearImages}
-            accessibilityLabel="Clear all images in this session"
-          >
-            <Ionicons
-              name="trash-bin-outline"
-              size={16}
-              color={Theme.colors.textOnPrimary}
-            />
-            <Text style={styles.clearImagesText}>Clear</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-      <View style={styles.shutterContainer}>
+      <View
+        style={[
+          styles.shutterContainer,
+          { bottom: Theme.spacing.lg + insets.bottom },
+        ]}
+      >
         <TouchableOpacity
           style={styles.captureButtonOuter}
           onPress={takePic}
@@ -420,17 +399,21 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.textOnPrimary,
   },
   imageContainer: {
-    height: "95%",
+    flex: 1,
     width: "100%",
+    backgroundColor: Theme.colors.textPrimary,
   },
   preview: {
     alignSelf: "stretch",
-    flex: 0.7,
+    flex: 1,
   },
   descriptionContainer: {
-    flex: 0.3,
+    // Sin flex fijo: se dimensiona según su contenido para que el texto y el
+    // Lottie nunca se corten contra la barra de botones de abajo.
     backgroundColor: Theme.colors.surface,
-    padding: Theme.spacing.md,
+    paddingHorizontal: Theme.spacing.md,
+    paddingTop: Theme.spacing.md,
+    paddingBottom: Theme.spacing.lg,
     borderTopLeftRadius: Theme.radius.lg,
     borderTopRightRadius: Theme.radius.lg,
     alignItems: "center",
@@ -465,41 +448,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-evenly",
     backgroundColor: Theme.colors.surface,
     paddingVertical: Theme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Theme.colors.divider,
   },
   btn: {
     justifyContent: "center",
     margin: Theme.spacing.sm,
     elevation: 5,
-  },
-  sessionInfoContainer: {
-    // Offsets propios del posicionamiento absoluto sobre la cámara
-    position: "absolute",
-    top: 50,
-    right: 16,
-    alignItems: "flex-end",
-  },
-  imageCounterText: {
-    color: Theme.colors.textOnPrimary,
-    fontSize: Theme.typography.sm,
-    fontWeight: Theme.typography.bold,
-    backgroundColor: Theme.colors.overlay,
-    paddingHorizontal: Theme.spacing.sm,
-    paddingVertical: Theme.spacing.xs,
-    borderRadius: Theme.radius.full,
-    overflow: "hidden",
-  },
-  clearImagesButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: Theme.spacing.sm,
-    backgroundColor: Theme.colors.overlay,
-    paddingHorizontal: Theme.spacing.sm,
-    paddingVertical: Theme.spacing.xs,
-    borderRadius: Theme.radius.full,
-  },
-  clearImagesText: {
-    color: Theme.colors.textOnPrimary,
-    fontSize: Theme.typography.sm,
-    marginLeft: Theme.spacing.xs,
   },
 });

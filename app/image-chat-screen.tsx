@@ -10,13 +10,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import VoiceVisualizer from "../components/VoiceVisualizer";
 import { Theme } from "../constants/Theme";
